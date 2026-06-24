@@ -132,6 +132,7 @@ Commands:
 | Clean stream sweep selection | stream-packet-upload | 1300 | 40/60 Mbps short sweep: both delivery-ok but no clean target; 20/30/40 Mbps short sweep: selected clean `40 Mbps` at `40.12 Mbps` server avg | delivery-ok requires byte gap 0; clean additionally requires client/server loss and congestion 0 | `scripts/bench-sweep.sh` now reports separate clean and delivery-ok winners so retransmission-heavy stream candidates remain visible but are not treated as the safest target |
 | Stream chunk write | stream-packet | 1300 | upload 20/30/40/50 Mbps, 5s x2: all delivery-ok, no clean target; delivery-ok selected `50 Mbps` at `48.05 Mbps` server avg. download 36/40/45 Mbps, 5s x2: clean selected `36 Mbps` at `34.98 Mbps`; 40/45 were delivery-only with high server loss | post-deploy DATAGRAM sanity: upload `13.03 Mbps` clean; download resweep selected `36.07 Mbps` clean | Replaced the intermediate stream frame copy with Quinn `write_all_chunks`, leaving DATAGRAM as the selected default because stream upload still needs full TUN latency testing |
 | DATAGRAM burst window WIP | mixed | 1300 | upload `13 Mbps`, 5s x2: `13.02 Mbps` server avg clean; download `36 Mbps`, 3s x1: `36.05 Mbps` server avg delivery-ok but not clean due to client loss 1; download `34 Mbps`, 5s x2: clean | 38 Mbps passed clean once, then failed an edge resweep with loss/congestion | Reduced pacer burst budget from 10ms to 5ms and separated DATAGRAM `delivery_ok` from `clean_ok`; keep 36 Mbps as balanced target and 34 Mbps as strict-clean fallback until longer validation |
+| WireGuard baseline setup | wireguard | 1420 | server `wg0` up/down smoke test passed on UDP `443` | local WireGuard tunnel requires interactive macOS sudo before throughput measurement | Added scripts to generate ignored WireGuard configs, switch between `MODE=wireguard` and `MODE=litevpn`, and run iperf3 tunnel throughput tests |
 | Paced MTU retest | download | 1350 | 37.82 Mbps | 47,548,350 bytes / 10s | 0 server loss, higher RTT |
 | Paced MTU retest | download | 1400 | 39.99 Mbps | 47,353,600 bytes / 10s | 0 server loss at 38 target, but edge-risk |
 | Paced MTU edge check | download | 1400 | failed | n/a | `datagram too large` at 45 Mbps target |
@@ -180,11 +181,12 @@ Commands:
 - Split `scripts/bench-sweep.sh` candidate selection into `clean_ok` and `delivery_ok`. Stream delivery can now be tracked separately from retransmission-free operation.
 - Changed stream packet writes to use Quinn `write_all_chunks`, removing the extra intermediate full-packet frame copy before Quinn takes ownership of stream chunks.
 - Reduced the pacing burst window to 5ms and split DATAGRAM payload delivery from strict zero-loss clean selection in `scripts/bench-sweep.sh`.
+- Added WireGuard baseline setup/run/throughput scripts. Generated WireGuard configs live under ignored `config/wireguard/`; the local-only optimization report remains ignored too.
 
 ## Next Candidates
 
 - Run a sudo TUN-mode browser/fast.com smoke test from macOS when an interactive password is available.
-- Compare against kernel WireGuard on the same OCI instance as the theoretical performance target.
+- Run the prepared WireGuard baseline on macOS with interactive sudo, then compare iperf3/Fast.com throughput and loaded latency against LiteVPN.
 - Compare DATAGRAM vs `vpn_transport = "stream"` in full TUN mode with Fast.com and packet loss-sensitive traffic.
 - If stream mode shows user-facing gains, tune stream receive/send windows; if it hurts latency, keep DATAGRAM mode and add a tiny app-level repair/FEC layer for selected packet classes.
 - Inspect QUIC ACK/MTU discovery settings that directly affect DATAGRAM behavior under loss.

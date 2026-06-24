@@ -7,6 +7,7 @@ config/*.crt
 config/*.key
 config/*.pem
 config/*.token
+config/wireguard/
 
 # Local editor, OS, and runtime noise.
 .DS_Store

@@ -108,6 +108,36 @@ when the client exits:
 MODE=stream HOST=ubuntu@YOUR_SERVER_IP KEY=~/.ssh/your_oci_key scripts/run-tun-smoke.sh
 ```
 
+## WireGuard baseline
+
+WireGuard baseline files are generated under `config/wireguard/`, which is
+ignored by git because it contains private keys.
+
+Install and configure the same OCI server as a WireGuard baseline:
+
+```bash
+HOST=ubuntu@YOUR_SERVER_IP KEY=~/.ssh/your_oci_key scripts/setup-wireguard-baseline.sh
+```
+
+Run either VPN mode from macOS:
+
+```bash
+MODE=wireguard HOST=ubuntu@YOUR_SERVER_IP KEY=~/.ssh/your_oci_key scripts/run-vpn-mode.sh
+MODE=litevpn HOST=ubuntu@YOUR_SERVER_IP KEY=~/.ssh/your_oci_key scripts/run-vpn-mode.sh
+```
+
+`MODE=wireguard` stops the remote LiteVPN service, starts remote `wg0`, then
+starts local `wg-quick` and restores LiteVPN when the script exits.
+`MODE=litevpn` stops remote `wg0`, starts the LiteVPN service, then starts the
+local LiteVPN client.
+
+With either VPN already running, compare tunnel throughput:
+
+```bash
+MODE=wireguard HOST=ubuntu@YOUR_SERVER_IP KEY=~/.ssh/your_oci_key scripts/bench-vpn-throughput.sh
+MODE=litevpn HOST=ubuntu@YOUR_SERVER_IP KEY=~/.ssh/your_oci_key scripts/bench-vpn-throughput.sh
+```
+
 Server runtime/network snapshot:
 
 ```bash
