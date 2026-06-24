@@ -11,6 +11,7 @@ Server: `ubuntu@161.33.36.181`, OCI Osaka, `VM.Standard.E2.1.Micro`
 - Server kernel buffers: `rmem/wmem_max=16777216`, `rmem/wmem_default=1048576`, `netdev_max_backlog=4096`
 - Congestion controller: `cubic`
 - Explicit UDP socket buffers: disabled (`0`, OS default)
+- Stable benchmark targets on current path: download `38 Mbps`, upload `15 Mbps`
 - Server deployment: local Rust build, replace only `/usr/local/bin/litevpn-server`
 
 ## Why 1162 Is Selected
@@ -50,6 +51,16 @@ Commands:
 | Stats run, high RTT path | download | 1162 | 12.84 Mbps | 20,264,118 bytes / 10s | RTT 153ms, server lost 10,721 bytes |
 | Stats run, high loss path | download | 1162 | 27.37 Mbps | 47,331,746 bytes / 10s | Server lost 7,691 packets / 9,170,434 bytes |
 | Stats run, high RTT path | upload | 1162 | 8.07 Mbps | 6,883,688 bytes / 11s | RTT 60ms, client congestion events 14 |
+| Paced download | download | 1162 | 20.00 Mbps | 25,001,592 bytes / 10s | 0 server loss, 0 congestion |
+| Paced download | download | 1162 | 30.00 Mbps | 37,504,712 bytes / 10s | 0 server loss, 0 congestion |
+| Paced download | download | 1162 | 35.00 Mbps | 43,748,138 bytes / 10s | 0 server loss, 0 congestion |
+| Paced download | download | 1162 | 37.98 Mbps | 47,499,074 bytes / 10s | 0 server loss, 0 congestion |
+| Paced download | download | 1162 | 39.36 Mbps | 50,002,022 bytes / 10s | Server lost 678 packets, congestion 42 |
+| Paced download | download | 1162 | 48.20 Mbps | 62,500,494 bytes / 10s | Server congestion 87 |
+| Paced upload | upload | 1162 | 10.01 Mbps | 12,505,444 bytes / 11s | Improved by burst pacing |
+| Paced upload | upload | 1162 | 15.01 Mbps | 18,755,842 bytes / 11s | Stable target |
+| Paced upload | upload | 1162 | 18.03 Mbps | 19,719,140 bytes / 11s | Client congestion 14 |
+| Unlimited comparison | download | 1162 | 35.14 Mbps | 53,629,786 bytes / 10s | Server lost 4,742 packets / 5,653,484 bytes |
 
 ## Code Changes In This Iteration
 
@@ -62,10 +73,11 @@ Commands:
 - Added configurable Quinn congestion control and tested BBR; kept Cubic for this path.
 - Added explicit UDP socket buffer controls and tested 4MiB; kept OS default because throughput regressed.
 - Added Quinn connection stats to benchmark output. The latest low-throughput runs showed path RTT and loss spikes, not just local CPU pressure.
+- Added `--bench-target-mbps` pacing. Per-packet sleep was too coarse on macOS, so pacing uses a 10ms burst budget. Current stable benchmark targets are about 38 Mbps down and 15 Mbps up.
 
 ## Next Candidates
 
 - Add CPU/network counters around benchmarks: server `pidstat`, `sar`, and `ss -u`.
-- Add benchmark pacing/rate-limit sweeps to find the highest stable Mbps under loss instead of always blasting DATAGRAMs.
-- Inspect QUIC ACK/MTU discovery settings that directly affect DATAGRAM loss recovery.
+- Consider optional VPN-mode egress pacing if real browser traffic shows the same loss pattern as the synthetic benchmark.
+- Inspect QUIC ACK/MTU discovery settings that directly affect DATAGRAM behavior under loss.
 - Compare against kernel WireGuard on the same OCI instance as the theoretical performance target.

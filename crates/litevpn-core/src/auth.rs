@@ -18,6 +18,7 @@ pub enum AuthMode {
         direction: BenchDirection,
         duration_secs: u64,
         payload_bytes: usize,
+        target_mbps: Option<u64>,
     },
 }
 
@@ -45,13 +46,16 @@ pub async fn client_authenticate_with_mode(
             direction,
             duration_secs,
             payload_bytes,
+            target_mbps,
         } => {
             let direction = match direction {
                 BenchDirection::Upload => "upload",
                 BenchDirection::Download => "download",
             };
+            let target_mbps = target_mbps.unwrap_or(0);
             request.extend_from_slice(
-                format!("bench {direction} {duration_secs} {payload_bytes}\n").as_bytes(),
+                format!("bench {direction} {duration_secs} {payload_bytes} {target_mbps}\n")
+                    .as_bytes(),
             );
         }
     }
@@ -141,6 +145,13 @@ fn parse_mode(line: &str) -> Result<AuthMode> {
         .context("missing bench payload size")?
         .parse()
         .context("invalid bench payload size")?;
+    let target_mbps = match parts.next() {
+        Some(value) => match value.parse().context("invalid bench target Mbps")? {
+            0 => None,
+            value => Some(value),
+        },
+        None => None,
+    };
     if parts.next().is_some() {
         bail!("too many bench mode fields");
     }
@@ -154,6 +165,7 @@ fn parse_mode(line: &str) -> Result<AuthMode> {
         direction,
         duration_secs,
         payload_bytes,
+        target_mbps,
     })
 }
 
@@ -180,7 +192,26 @@ mod tests {
                 AuthMode::Bench {
                     direction: BenchDirection::Download,
                     duration_secs: 3,
-                    payload_bytes: 1200
+                    payload_bytes: 1200,
+                    target_mbps: None
+                }
+            )
+        );
+    }
+
+    #[test]
+    fn parses_bench_target_mbps() {
+        let mut req = AUTH_MAGIC.to_vec();
+        req.extend_from_slice(b"abcdef\nbench upload 5 1162 40\n");
+        assert_eq!(
+            parse_request(&req).unwrap(),
+            (
+                "abcdef",
+                AuthMode::Bench {
+                    direction: BenchDirection::Upload,
+                    duration_secs: 5,
+                    payload_bytes: 1162,
+                    target_mbps: Some(40)
                 }
             )
         );

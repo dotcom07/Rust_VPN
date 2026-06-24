@@ -48,6 +48,9 @@ struct Args {
 
     #[arg(long, default_value_t = 0)]
     bench_payload_bytes: usize,
+
+    #[arg(long, default_value_t = 0)]
+    bench_target_mbps: u64,
 }
 
 #[tokio::main(flavor = "multi_thread")]
@@ -107,6 +110,7 @@ async fn main() -> Result<()> {
             direction,
             duration_secs: args.bench_duration_secs,
             payload_bytes: bench_payload_bytes,
+            target_mbps: bench_target_mbps(args.bench_target_mbps)?,
         },
         None => AuthMode::Vpn,
     };
@@ -119,6 +123,7 @@ async fn main() -> Result<()> {
             direction,
             args.bench_duration_secs,
             bench_payload_bytes,
+            bench_target_mbps(args.bench_target_mbps)?,
         )
         .await?;
         connection.close(0_u32.into(), b"bench complete");
@@ -219,20 +224,33 @@ fn bench_payload_bytes(
     Ok(payload_bytes)
 }
 
+fn bench_target_mbps(value: u64) -> Result<Option<u64>> {
+    if value == 0 {
+        return Ok(None);
+    }
+    if value > 10_000 {
+        bail!("bench target Mbps must be <= 10000");
+    }
+    Ok(Some(value))
+}
+
 async fn run_bench(
     connection: &quinn::Connection,
     direction: BenchDirection,
     duration_secs: u64,
     payload_bytes: usize,
+    target_mbps: Option<u64>,
 ) -> Result<()> {
     if duration_secs == 0 {
         bail!("bench duration must be greater than zero");
     }
 
     match direction {
-        BenchDirection::Upload => run_upload_bench(connection, duration_secs, payload_bytes).await,
+        BenchDirection::Upload => {
+            run_upload_bench(connection, duration_secs, payload_bytes, target_mbps).await
+        }
         BenchDirection::Download => {
-            run_download_bench(connection, duration_secs, payload_bytes).await
+            run_download_bench(connection, duration_secs, payload_bytes, target_mbps).await
         }
     }
 }
@@ -241,12 +259,15 @@ async fn run_upload_bench(
     connection: &quinn::Connection,
     duration_secs: u64,
     payload_bytes: usize,
+    target_mbps: Option<u64>,
 ) -> Result<()> {
     let payload = Bytes::from(vec![0_u8; payload_bytes]);
     let started = Instant::now();
     let deadline = started + Duration::from_secs(duration_secs);
     let mut packets = 0_u64;
     let mut bytes = 0_u64;
+    let target_bytes_per_sec = target_bytes_per_sec(target_mbps);
+    let burst_bytes = target_burst_bytes(target_bytes_per_sec, payload_bytes);
     let deadline_timer = sleep_until(deadline);
     tokio::pin!(deadline_timer);
 
@@ -259,6 +280,7 @@ async fn run_upload_bench(
                 result?;
                 packets += 1;
                 bytes += payload_bytes as u64;
+                pace_to_target(started, bytes, target_bytes_per_sec, burst_bytes).await;
             }
             reason = connection.closed() => {
                 bail!("connection closed during upload bench: {reason}");
@@ -273,7 +295,14 @@ async fn run_upload_bench(
     )
     .await
     .context("timed out waiting for bench summary")??;
-    print_local_bench("upload sent", elapsed, bytes, packets, payload_bytes);
+    print_local_bench(
+        "upload sent",
+        elapsed,
+        bytes,
+        packets,
+        payload_bytes,
+        target_mbps,
+    );
     println!("client stats: {}", connection_stats_summary(connection));
     println!("server {summary}");
     sleep(Duration::from_millis(100)).await;
@@ -284,6 +313,7 @@ async fn run_download_bench(
     connection: &quinn::Connection,
     duration_secs: u64,
     payload_bytes: usize,
+    target_mbps: Option<u64>,
 ) -> Result<()> {
     let started = Instant::now();
     let deadline = started + Duration::from_secs(duration_secs + 5);
@@ -303,6 +333,7 @@ async fn run_download_bench(
                     bytes,
                     packets,
                     payload_bytes,
+                    target_mbps,
                 );
                 println!("client stats: {}", connection_stats_summary(connection));
                 println!("server {summary}");
@@ -350,13 +381,52 @@ fn print_local_bench(
     bytes: u64,
     packets: u64,
     payload_bytes: usize,
+    target_mbps: Option<u64>,
 ) {
     let seconds = elapsed.as_secs_f64().max(0.001);
     let mbps = bytes as f64 * 8.0 / seconds / 1_000_000.0;
+    let target = target_mbps
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "unlimited".to_string());
     println!(
-        "{label}: {mbps:.2} Mbps, bytes={bytes}, packets={packets}, payload_bytes={payload_bytes}, elapsed_ms={}",
+        "{label}: {mbps:.2} Mbps, target_mbps={target}, bytes={bytes}, packets={packets}, payload_bytes={payload_bytes}, elapsed_ms={}",
         elapsed.as_millis()
     );
+}
+
+fn target_bytes_per_sec(target_mbps: Option<u64>) -> Option<f64> {
+    target_mbps.map(|mbps| mbps as f64 * 1_000_000.0 / 8.0)
+}
+
+fn target_burst_bytes(target_bytes_per_sec: Option<f64>, payload_bytes: usize) -> u64 {
+    target_bytes_per_sec
+        .map(|bytes_per_sec| (bytes_per_sec * 0.010).max(payload_bytes as f64).ceil() as u64)
+        .unwrap_or(0)
+}
+
+async fn pace_to_target(
+    started: Instant,
+    bytes: u64,
+    target_bytes_per_sec: Option<f64>,
+    burst_bytes: u64,
+) {
+    let Some(target_bytes_per_sec) = target_bytes_per_sec else {
+        return;
+    };
+    if bytes <= burst_bytes {
+        return;
+    }
+    let elapsed = started.elapsed().as_secs_f64();
+    let allowed_bytes = elapsed * target_bytes_per_sec + burst_bytes as f64;
+    if bytes as f64 <= allowed_bytes {
+        return;
+    }
+    let target_elapsed =
+        Duration::from_secs_f64((bytes - burst_bytes) as f64 / target_bytes_per_sec);
+    let target_time = started + target_elapsed;
+    if target_time > Instant::now() {
+        sleep_until(target_time).await;
+    }
 }
 
 async fn shutdown_signal() -> Result<()> {

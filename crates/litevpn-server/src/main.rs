@@ -160,9 +160,17 @@ async fn handle_connection(
         direction,
         duration_secs,
         payload_bytes,
+        target_mbps,
     } = mode
     {
-        return run_bench(connection, direction, duration_secs, payload_bytes).await;
+        return run_bench(
+            connection,
+            direction,
+            duration_secs,
+            payload_bytes,
+            target_mbps,
+        )
+        .await;
     }
 
     ensure_datagram_capacity(&connection, mtu, "server")?;
@@ -204,11 +212,14 @@ async fn run_bench(
     direction: BenchDirection,
     duration_secs: u64,
     payload_bytes: usize,
+    target_mbps: Option<u64>,
 ) -> Result<()> {
     match direction {
-        BenchDirection::Upload => run_upload_bench(connection, duration_secs, payload_bytes).await,
+        BenchDirection::Upload => {
+            run_upload_bench(connection, duration_secs, payload_bytes, target_mbps).await
+        }
         BenchDirection::Download => {
-            run_download_bench(connection, duration_secs, payload_bytes).await
+            run_download_bench(connection, duration_secs, payload_bytes, target_mbps).await
         }
     }
 }
@@ -217,6 +228,7 @@ async fn run_upload_bench(
     connection: Connection,
     duration_secs: u64,
     payload_bytes: usize,
+    target_mbps: Option<u64>,
 ) -> Result<()> {
     let started = Instant::now();
     let deadline = started + Duration::from_secs(duration_secs + 1);
@@ -240,6 +252,7 @@ async fn run_upload_bench(
         bytes,
         packets,
         payload_bytes,
+        target_mbps,
     )
     .await?;
     info!(
@@ -256,6 +269,7 @@ async fn run_download_bench(
     connection: Connection,
     duration_secs: u64,
     payload_bytes: usize,
+    target_mbps: Option<u64>,
 ) -> Result<()> {
     let requested_payload_bytes = payload_bytes;
     let payload_bytes = connection
@@ -274,6 +288,8 @@ async fn run_download_bench(
     let deadline = started + Duration::from_secs(duration_secs);
     let mut packets = 0_u64;
     let mut bytes = 0_u64;
+    let target_bytes_per_sec = target_bytes_per_sec(target_mbps);
+    let burst_bytes = target_burst_bytes(target_bytes_per_sec, payload_bytes);
     let deadline_timer = sleep_until(deadline);
     tokio::pin!(deadline_timer);
 
@@ -286,6 +302,7 @@ async fn run_download_bench(
                 result?;
                 packets += 1;
                 bytes += payload_bytes as u64;
+                pace_to_target(started, bytes, target_bytes_per_sec, burst_bytes).await;
             }
             reason = connection.closed() => {
                 warn!(%reason, "download bench connection closed");
@@ -301,6 +318,7 @@ async fn run_download_bench(
         bytes,
         packets,
         payload_bytes,
+        target_mbps,
     )
     .await?;
     info!(
@@ -320,9 +338,13 @@ async fn send_bench_summary(
     bytes: u64,
     packets: u64,
     payload_bytes: usize,
+    target_mbps: Option<u64>,
 ) -> Result<()> {
+    let target = target_mbps
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "unlimited".to_string());
     let summary = format!(
-        "{}direction={direction} bytes={bytes} packets={packets} payload_bytes={payload_bytes} elapsed_ms={} {}\n",
+        "{}direction={direction} bytes={bytes} packets={packets} payload_bytes={payload_bytes} target_mbps={target} elapsed_ms={} {}\n",
         std::str::from_utf8(BENCH_SUMMARY_MAGIC).expect("ascii magic"),
         elapsed.as_millis(),
         connection_stats_summary(connection)
@@ -342,4 +364,39 @@ async fn send_bench_summary(
         _ = sleep(Duration::from_millis(300)) => {}
     }
     Ok(())
+}
+
+fn target_bytes_per_sec(target_mbps: Option<u64>) -> Option<f64> {
+    target_mbps.map(|mbps| mbps as f64 * 1_000_000.0 / 8.0)
+}
+
+fn target_burst_bytes(target_bytes_per_sec: Option<f64>, payload_bytes: usize) -> u64 {
+    target_bytes_per_sec
+        .map(|bytes_per_sec| (bytes_per_sec * 0.010).max(payload_bytes as f64).ceil() as u64)
+        .unwrap_or(0)
+}
+
+async fn pace_to_target(
+    started: Instant,
+    bytes: u64,
+    target_bytes_per_sec: Option<f64>,
+    burst_bytes: u64,
+) {
+    let Some(target_bytes_per_sec) = target_bytes_per_sec else {
+        return;
+    };
+    if bytes <= burst_bytes {
+        return;
+    }
+    let elapsed = started.elapsed().as_secs_f64();
+    let allowed_bytes = elapsed * target_bytes_per_sec + burst_bytes as f64;
+    if bytes as f64 <= allowed_bytes {
+        return;
+    }
+    let target_elapsed =
+        Duration::from_secs_f64((bytes - burst_bytes) as f64 / target_bytes_per_sec);
+    let target_time = started + target_elapsed;
+    if target_time > Instant::now() {
+        sleep_until(target_time).await;
+    }
 }
