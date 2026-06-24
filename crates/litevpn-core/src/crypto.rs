@@ -22,6 +22,7 @@ pub fn server_config(
     cert_path: impl AsRef<Path>,
     key_path: impl AsRef<Path>,
     datagram_buffer_bytes: usize,
+    tun_mtu: u16,
 ) -> Result<ServerConfig> {
     install_crypto_provider();
 
@@ -35,13 +36,14 @@ pub fn server_config(
 
     let mut config =
         ServerConfig::with_crypto(Arc::new(QuicServerConfig::try_from(server_crypto)?));
-    config.transport_config(Arc::new(transport_config(datagram_buffer_bytes)));
+    config.transport_config(Arc::new(transport_config(datagram_buffer_bytes, tun_mtu)));
     Ok(config)
 }
 
 pub fn client_config(
     ca_cert_path: impl AsRef<Path>,
     datagram_buffer_bytes: usize,
+    tun_mtu: u16,
 ) -> Result<ClientConfig> {
     install_crypto_provider();
 
@@ -56,7 +58,7 @@ pub fn client_config(
     client_crypto.alpn_protocols = vec![ALPN.to_vec()];
 
     let mut config = ClientConfig::new(Arc::new(QuicClientConfig::try_from(client_crypto)?));
-    config.transport_config(Arc::new(transport_config(datagram_buffer_bytes)));
+    config.transport_config(Arc::new(transport_config(datagram_buffer_bytes, tun_mtu)));
     Ok(config)
 }
 
@@ -88,15 +90,16 @@ fn read_private_key(path: impl AsRef<Path>) -> Result<PrivateKeyDer<'static>> {
         .with_context(|| format!("no private key found in {}", path.display()))
 }
 
-fn transport_config(datagram_buffer_bytes: usize) -> TransportConfig {
+fn transport_config(datagram_buffer_bytes: usize, tun_mtu: u16) -> TransportConfig {
     let mut transport = TransportConfig::default();
-    tune_transport(&mut transport);
+    tune_transport(&mut transport, tun_mtu);
     transport.datagram_receive_buffer_size(Some(datagram_buffer_bytes));
     transport.datagram_send_buffer_size(datagram_buffer_bytes);
     transport
 }
 
-fn tune_transport(transport: &mut TransportConfig) {
+fn tune_transport(transport: &mut TransportConfig, tun_mtu: u16) {
+    let quic_initial_mtu = tun_mtu.saturating_add(160).min(1452);
     transport
         .max_concurrent_bidi_streams(4_u8.into())
         .max_concurrent_uni_streams(0_u8.into())
@@ -106,7 +109,7 @@ fn tune_transport(transport: &mut TransportConfig) {
                 .try_into()
                 .expect("valid idle timeout"),
         ))
-        .initial_mtu(1200)
+        .initial_mtu(quic_initial_mtu)
         .receive_window(VarInt::from_u32(8 * 1024 * 1024))
         .stream_receive_window(VarInt::from_u32(512 * 1024))
         .send_window(8 * 1024 * 1024)

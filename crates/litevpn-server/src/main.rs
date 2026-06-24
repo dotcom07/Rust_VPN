@@ -8,19 +8,22 @@ use std::{
 };
 
 use anyhow::{Context, Result};
+use bytes::Bytes;
 use clap::Parser;
 use litevpn_core::{
-    auth::server_authenticate,
+    auth::{AuthMode, BenchDirection, server_authenticate},
     config::{ServerConfig, load_token, load_toml},
     crypto,
-    quic::{pump_quic_to_tun, pump_tun_to_quic},
+    quic::{ensure_datagram_capacity, pump_quic_to_tun, pump_tun_to_quic},
     tun::{TunDevice, TunOptions, create_tun},
 };
 use quinn::{Connection, Endpoint};
 use tokio::sync::Mutex;
-use tokio::time::{Duration, timeout};
+use tokio::time::{Duration, Instant, sleep, sleep_until, timeout, timeout_at};
 use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
+
+const BENCH_SUMMARY_MAGIC: &[u8] = b"LVPNBENCH ";
 
 #[derive(Debug, Parser)]
 struct Args {
@@ -62,6 +65,7 @@ async fn main() -> Result<()> {
         &config.cert_path,
         &config.key_path,
         config.datagram_buffer_bytes,
+        config.mtu,
     )?;
     let endpoint = Endpoint::server(server_config, listen)?;
     let active = Arc::new(Mutex::new(None));
@@ -129,13 +133,24 @@ async fn handle_connection(
     let connection = incoming.accept()?.await?;
     info!(remote = %connection.remote_address(), "client connected");
 
-    timeout(
+    let mode = timeout(
         Duration::from_secs(10),
         server_authenticate(&connection, &token),
     )
     .await
     .context("auth timed out")??;
     info!(remote = %connection.remote_address(), "client authenticated");
+
+    if let AuthMode::Bench {
+        direction,
+        duration_secs,
+        payload_bytes,
+    } = mode
+    {
+        return run_bench(connection, direction, duration_secs, payload_bytes).await;
+    }
+
+    ensure_datagram_capacity(&connection, mtu, "server")?;
 
     let id = next_client_id.fetch_add(1, Ordering::Relaxed);
     *client_id = Some(id);
@@ -166,5 +181,149 @@ async fn handle_connection(
     }
 
     error!("unreachable pump exit");
+    Ok(())
+}
+
+async fn run_bench(
+    connection: Connection,
+    direction: BenchDirection,
+    duration_secs: u64,
+    payload_bytes: usize,
+) -> Result<()> {
+    match direction {
+        BenchDirection::Upload => run_upload_bench(connection, duration_secs, payload_bytes).await,
+        BenchDirection::Download => {
+            run_download_bench(connection, duration_secs, payload_bytes).await
+        }
+    }
+}
+
+async fn run_upload_bench(
+    connection: Connection,
+    duration_secs: u64,
+    payload_bytes: usize,
+) -> Result<()> {
+    let started = Instant::now();
+    let deadline = started + Duration::from_secs(duration_secs + 1);
+    let mut packets = 0_u64;
+    let mut bytes = 0_u64;
+
+    loop {
+        let packet = match timeout_at(deadline, connection.read_datagram()).await {
+            Ok(Ok(packet)) => packet,
+            Ok(Err(error)) => return Err(error.into()),
+            Err(_) => break,
+        };
+        packets += 1;
+        bytes += packet.len() as u64;
+    }
+
+    send_bench_summary(
+        &connection,
+        "upload",
+        started.elapsed(),
+        bytes,
+        packets,
+        payload_bytes,
+    )
+    .await?;
+    info!(
+        bytes,
+        packets,
+        payload_bytes,
+        elapsed_ms = started.elapsed().as_millis(),
+        "upload bench complete"
+    );
+    Ok(())
+}
+
+async fn run_download_bench(
+    connection: Connection,
+    duration_secs: u64,
+    payload_bytes: usize,
+) -> Result<()> {
+    let requested_payload_bytes = payload_bytes;
+    let payload_bytes = connection
+        .max_datagram_size()
+        .unwrap_or(payload_bytes)
+        .min(payload_bytes);
+    if payload_bytes < requested_payload_bytes {
+        warn!(
+            requested_payload_bytes,
+            payload_bytes, "capping download bench payload to QUIC datagram capacity"
+        );
+    }
+
+    let payload = Bytes::from(vec![0_u8; payload_bytes]);
+    let started = Instant::now();
+    let deadline = started + Duration::from_secs(duration_secs);
+    let mut packets = 0_u64;
+    let mut bytes = 0_u64;
+    let deadline_timer = sleep_until(deadline);
+    tokio::pin!(deadline_timer);
+
+    loop {
+        tokio::select! {
+            _ = &mut deadline_timer => {
+                break;
+            }
+            result = connection.send_datagram_wait(payload.clone()) => {
+                result?;
+                packets += 1;
+                bytes += payload_bytes as u64;
+            }
+            reason = connection.closed() => {
+                warn!(%reason, "download bench connection closed");
+                break;
+            }
+        }
+    }
+
+    send_bench_summary(
+        &connection,
+        "download",
+        started.elapsed(),
+        bytes,
+        packets,
+        payload_bytes,
+    )
+    .await?;
+    info!(
+        bytes,
+        packets,
+        payload_bytes,
+        elapsed_ms = started.elapsed().as_millis(),
+        "download bench complete"
+    );
+    Ok(())
+}
+
+async fn send_bench_summary(
+    connection: &Connection,
+    direction: &str,
+    elapsed: Duration,
+    bytes: u64,
+    packets: u64,
+    payload_bytes: usize,
+) -> Result<()> {
+    let summary = format!(
+        "{}direction={direction} bytes={bytes} packets={packets} payload_bytes={payload_bytes} elapsed_ms={}\n",
+        std::str::from_utf8(BENCH_SUMMARY_MAGIC).expect("ascii magic"),
+        elapsed.as_millis()
+    );
+
+    let (mut send, _recv) = connection
+        .open_bi()
+        .await
+        .context("failed to open bench summary stream")?;
+    send.write_all(summary.as_bytes())
+        .await
+        .context("failed to write bench summary")?;
+    send.finish().context("failed to finish bench summary")?;
+
+    tokio::select! {
+        _ = connection.closed() => {}
+        _ = sleep(Duration::from_millis(300)) => {}
+    }
     Ok(())
 }

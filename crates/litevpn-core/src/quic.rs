@@ -4,6 +4,19 @@ use quinn::Connection;
 use tracing::{debug, trace};
 use tun_rs::AsyncDevice;
 
+pub fn ensure_datagram_capacity(
+    connection: &Connection,
+    mtu: usize,
+    label: &'static str,
+) -> Result<()> {
+    if let Some(max) = connection.max_datagram_size() {
+        if max < mtu {
+            bail!("{label}: QUIC datagram capacity {max} is below configured tunnel MTU {mtu}");
+        }
+    }
+    Ok(())
+}
+
 pub async fn pump_tun_to_quic(
     device: &AsyncDevice,
     connection: Connection,

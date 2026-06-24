@@ -724,6 +724,7 @@ name = "litevpn-client"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bytes",
  "clap",
  "litevpn-core",
  "quinn",
@@ -765,6 +766,7 @@ name = "litevpn-server"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bytes",
  "clap",
  "litevpn-core",
  "quinn",

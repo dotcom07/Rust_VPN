@@ -3,7 +3,7 @@ use std::{fs, net::Ipv4Addr, path::Path, path::PathBuf};
 use anyhow::{Context, Result, anyhow, bail};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use crate::{DEFAULT_DATAGRAM_BUFFER_BYTES, DEFAULT_MTU};
+use crate::{DEFAULT_DATAGRAM_BUFFER_BYTES, DEFAULT_MTU, MAX_MTU};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -109,8 +109,8 @@ fn validate_common(mtu: u16, prefix: u8, datagram_buffer_bytes: usize) -> Result
     if mtu < 576 {
         bail!("mtu must be >= 576");
     }
-    if mtu > DEFAULT_MTU {
-        bail!("mtu must be <= {DEFAULT_MTU} for QUIC datagram safety");
+    if mtu > MAX_MTU {
+        bail!("mtu must be <= {MAX_MTU} for QUIC datagram safety");
     }
     if prefix > 32 {
         bail!("tun_prefix must be <= 32");
