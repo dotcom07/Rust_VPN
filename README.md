@@ -148,9 +148,19 @@ HOST=ubuntu@YOUR_SERVER_IP KEY=~/.ssh/your_oci_key scripts/compare-vpn-modes.sh
 
 `--preflight` checks local tools, ignored WireGuard config, remote WireGuard
 tools/config, and the remote LiteVPN service without asking for local `sudo`.
+
+To keep each VPN mode up while measuring Fast.com in Chrome, add
+`FASTCOM_PAUSE=1`:
+
+```bash
+FASTCOM_PAUSE=1 HOST=ubuntu@YOUR_SERVER_IP KEY=~/.ssh/your_oci_key scripts/compare-vpn-modes.sh
+```
+
 Comparison logs are written under `bench-results/vpn-compare-*`.
 Each run also writes per-mode `upload.json`, `download.json`, `ping.txt`, and
 a combined `summary.csv` for quick WireGuard vs LiteVPN comparison.
+With `FASTCOM_PAUSE=1`, per-mode Fast.com note templates are written as
+`fastcom.md` beside the iperf logs.
 
 Server runtime/network snapshot:
 

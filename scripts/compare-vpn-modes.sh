@@ -13,6 +13,9 @@ PARALLEL="${PARALLEL:-1}"
 OUT_DIR="${OUT_DIR:-bench-results}"
 RUN_MODES="${RUN_MODES:-wireguard litevpn}"
 WG_QUICK_BIN="${WG_QUICK_BIN:-}"
+FASTCOM_PAUSE="${FASTCOM_PAUSE:-0}"
+OPEN_FASTCOM="${OPEN_FASTCOM:-1}"
+FASTCOM_URL="${FASTCOM_URL:-https://fast.com/ko/#}"
 PREFLIGHT=0
 
 LITEVPN_PID=""
@@ -39,6 +42,9 @@ Environment:
   WG_QUICK_BIN=/opt/homebrew/bin/wg-quick
   WG_CONF=config/wireguard/wg0.conf
   LITEVPN_CONFIG=config/client.toml
+  FASTCOM_PAUSE=1  # pause after each mode for manual Fast.com loaded-latency capture
+  OPEN_FASTCOM=1
+  FASTCOM_URL=https://fast.com/ko/#
 HELP
   exit 0
 fi
@@ -130,6 +136,49 @@ run_bench() {
   fi
 }
 
+fastcom_pause() {
+  local mode="$1"
+  local mode_dir="$COMPARE_DIR/$mode"
+  local notes="$mode_dir/fastcom.md"
+  local ignored=""
+
+  if [[ "$FASTCOM_PAUSE" != "1" ]]; then
+    return
+  fi
+  if [[ ! -t 0 ]]; then
+    echo "FASTCOM_PAUSE=1 requires an interactive terminal." >&2
+    return 1
+  fi
+
+  mkdir -p "$mode_dir"
+  cat > "$notes" <<EOF
+# Fast.com manual result: $mode
+
+Mode: $mode
+URL: $FASTCOM_URL
+Time: $(date '+%Y-%m-%dT%H:%M:%S%z')
+
+Fill after the browser run:
+
+- download_mbps:
+- upload_mbps:
+- unloaded_latency_ms:
+- loaded_latency_ms:
+- fastcom_client:
+- fastcom_server:
+- notes:
+EOF
+
+  echo
+  echo "== manual Fast.com check: $mode =="
+  echo "The $mode tunnel is still up."
+  echo "Record Fast.com values in: $notes"
+  if [[ "$OPEN_FASTCOM" == "1" ]] && command -v open >/dev/null 2>&1; then
+    open "$FASTCOM_URL" >/dev/null 2>&1 || true
+  fi
+  read -r -p "Run Fast.com for $mode, then press Enter to continue: " ignored
+}
+
 run_wireguard() {
   if [[ ! -f "$WG_CONF" ]]; then
     echo "missing $WG_CONF; run scripts/setup-wireguard-baseline.sh first" >&2
@@ -143,6 +192,7 @@ run_wireguard() {
   LOCAL_WG_UP=1
   sleep 2
   run_bench wireguard
+  fastcom_pause wireguard
   stop_local_wireguard
   restore_remote_litevpn
 }
@@ -155,6 +205,7 @@ run_litevpn() {
   LITEVPN_PID=$!
   sleep 4
   run_bench litevpn
+  fastcom_pause litevpn
   stop_local_litevpn
 }
 
@@ -261,6 +312,7 @@ date '+%Y-%m-%dT%H:%M:%S%z'
 echo "host=$HOST"
 echo "duration_secs=$DURATION parallel=$PARALLEL"
 echo "run_modes=$RUN_MODES"
+echo "fastcom_pause=$FASTCOM_PAUSE"
 echo "logs=$COMPARE_DIR"
 
 start_sudo_keepalive
