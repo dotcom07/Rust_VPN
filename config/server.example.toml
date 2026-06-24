@@ -14,4 +14,4 @@ tx_queue_len = 10000
 congestion_controller = "cubic"
 udp_recv_buffer_bytes = 0
 udp_send_buffer_bytes = 0
-egress_target_mbps = 38
+egress_target_mbps = 35

@@ -4,9 +4,53 @@ use anyhow::{Context, Result, bail};
 use bytes::Bytes;
 use quinn::Connection;
 use socket2::{Domain, Protocol, Socket, Type};
-use tokio::time::{Duration, Instant, sleep_until};
+use tokio::time::{Duration, Instant, sleep, sleep_until};
 use tracing::{debug, trace};
 use tun_rs::AsyncDevice;
+
+pub const DEFAULT_DATAGRAM_BACKLOG_PACKETS: u64 = 64;
+
+pub struct DatagramBacklog {
+    baseline_tx_datagrams: u64,
+    queued_datagrams: u64,
+    max_backlog_packets: u64,
+}
+
+impl DatagramBacklog {
+    pub fn new(connection: &Connection) -> Self {
+        Self {
+            baseline_tx_datagrams: connection.stats().frame_tx.datagram,
+            queued_datagrams: 0,
+            max_backlog_packets: DEFAULT_DATAGRAM_BACKLOG_PACKETS,
+        }
+    }
+
+    pub async fn queued(&mut self, connection: &Connection) -> Result<()> {
+        self.queued_datagrams = self.queued_datagrams.saturating_add(1);
+        self.wait(connection).await
+    }
+
+    async fn wait(&self, connection: &Connection) -> Result<()> {
+        loop {
+            let transmitted = connection
+                .stats()
+                .frame_tx
+                .datagram
+                .saturating_sub(self.baseline_tx_datagrams);
+            let backlog = self.queued_datagrams.saturating_sub(transmitted);
+            if backlog <= self.max_backlog_packets {
+                return Ok(());
+            }
+
+            tokio::select! {
+                _ = sleep(Duration::from_millis(2)) => {}
+                reason = connection.closed() => {
+                    bail!("connection closed while waiting for datagram backlog: {reason}");
+                }
+            }
+        }
+    }
+}
 
 pub fn create_udp_socket(
     addr: SocketAddr,
@@ -80,6 +124,7 @@ pub async fn pump_tun_to_quic(
     let mut bytes = 0_u64;
     let target_bytes_per_sec = target_bytes_per_sec(egress_target_mbps);
     let burst_bytes = target_burst_bytes(target_bytes_per_sec, mtu);
+    let mut datagram_backlog = DatagramBacklog::new(&connection);
     loop {
         let n = tokio::select! {
             result = device.recv(&mut buf) => result?,
@@ -105,6 +150,7 @@ pub async fn pump_tun_to_quic(
         connection
             .send_datagram_wait(Bytes::copy_from_slice(&buf[..n]))
             .await?;
+        datagram_backlog.queued(&connection).await?;
         bytes += n as u64;
         pace_to_target(started, bytes, target_bytes_per_sec, burst_bytes).await;
     }

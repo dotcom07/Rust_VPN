@@ -15,8 +15,8 @@ use litevpn_core::{
     config::{ServerConfig, load_token, load_toml},
     crypto,
     quic::{
-        connection_stats_summary, create_udp_socket, ensure_datagram_capacity, pump_quic_to_tun,
-        pump_tun_to_quic,
+        DatagramBacklog, connection_stats_summary, create_udp_socket, ensure_datagram_capacity,
+        pump_quic_to_tun, pump_tun_to_quic,
     },
     tun::{TunDevice, TunOptions, create_tun},
 };
@@ -300,6 +300,7 @@ async fn run_download_bench(
     let mut bytes = 0_u64;
     let target_bytes_per_sec = target_bytes_per_sec(target_mbps);
     let burst_bytes = target_burst_bytes(target_bytes_per_sec, payload_bytes);
+    let mut datagram_backlog = DatagramBacklog::new(&connection);
     let deadline_timer = sleep_until(deadline);
     tokio::pin!(deadline_timer);
 
@@ -310,6 +311,7 @@ async fn run_download_bench(
             }
             result = connection.send_datagram_wait(payload.clone()) => {
                 result?;
+                datagram_backlog.queued(&connection).await?;
                 packets += 1;
                 bytes += payload_bytes as u64;
                 pace_to_target(started, bytes, target_bytes_per_sec, burst_bytes).await;

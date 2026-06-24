@@ -11,8 +11,8 @@ Server: `ubuntu@161.33.36.181`, OCI Osaka, `VM.Standard.E2.1.Micro`
 - Server kernel buffers: `rmem/wmem_max=16777216`, `rmem/wmem_default=1048576`, `netdev_max_backlog=4096`
 - Congestion controller: `cubic`
 - Explicit UDP socket buffers: disabled (`0`, OS default)
-- Stable benchmark targets on current path: download `38 Mbps`, upload `13 Mbps`
-- VPN egress pacing: server `38 Mbps`, client `13 Mbps` on this deployment
+- Stable benchmark targets on current path: download `35 Mbps`, upload `13 Mbps`
+- VPN egress pacing: server `35 Mbps`, client `13 Mbps` on this deployment
 - Server deployment: local Rust build, replace only `/usr/local/bin/litevpn-server`
 
 ## Why 1300 Is Selected
@@ -88,6 +88,10 @@ Commands:
 | Repeated target sweep | upload | 1300 | 13.01 Mbps local / 10.76 Mbps server | 39,050,700 local bytes / 36,501,400 server bytes | 3 runs, server loss 0, congestion 0; selected for stability |
 | Repeated target sweep | upload | 1300 | 12.51 Mbps local / 10.04 Mbps server | 37,533,600 local bytes / 33,897,500 server bytes | 14 Mbps target had one low run |
 | Repeated target sweep | upload | 1300 | 13.80 Mbps local / 11.06 Mbps server | 41,398,500 local bytes / 37,332,100 server bytes | 15 Mbps target had worse min run and client loss spikes |
+| Datagram backlog cap | upload | 1300 | 13.01 Mbps local / 11.57 Mbps server | 39,050,700 local bytes / 39,048,100 server bytes | 3 runs, server loss 0, congestion 0; delivery gap fixed |
+| Datagram backlog cap | upload | 1300 | 12.22 Mbps local / 10.86 Mbps server | 36,678,200 local bytes / 36,641,800 server bytes | 14 Mbps target still had low runs |
+| Datagram backlog cap | download | 1300 | 37.89 Mbps local / 37.97 Mbps server | 113,991,800 local bytes / 114,146,500 server bytes | 38 Mbps target still hit loss under RTT spike |
+| Datagram backlog cap | download | 1300 | 35.02 Mbps local / 35.04 Mbps server | 105,131,000 local bytes / 105,131,000 server bytes | 3 runs, server loss 0, congestion 0; selected for stability |
 | Paced MTU retest | download | 1350 | 37.82 Mbps | 47,548,350 bytes / 10s | 0 server loss, higher RTT |
 | Paced MTU retest | download | 1400 | 39.99 Mbps | 47,353,600 bytes / 10s | 0 server loss at 38 target, but edge-risk |
 | Paced MTU edge check | download | 1400 | failed | n/a | `datagram too large` at 45 Mbps target |
@@ -104,13 +108,15 @@ Commands:
 - Added configurable Quinn congestion control and tested BBR; kept Cubic for this path.
 - Added explicit UDP socket buffer controls and tested 4MiB; kept OS default because throughput regressed.
 - Added Quinn connection stats to benchmark output. The latest low-throughput runs showed path RTT and loss spikes, not just local CPU pressure.
-- Added `--bench-target-mbps` pacing. Per-packet sleep was too coarse on macOS, so pacing uses a 10ms burst budget. Current stable benchmark targets are about 38 Mbps down and 13 Mbps up.
-- Added optional VPN-mode TUN-to-QUIC egress pacing. The selected defaults are server `38 Mbps` and client `13 Mbps`; set `egress_target_mbps = 0` to disable.
+- Added `--bench-target-mbps` pacing. Per-packet sleep was too coarse on macOS, so pacing uses a 10ms burst budget. Current stable benchmark targets are about 35 Mbps down and 13 Mbps up.
+- Added optional VPN-mode TUN-to-QUIC egress pacing. The selected defaults are server `35 Mbps` and client `13 Mbps`; set `egress_target_mbps = 0` to disable.
 - Retested larger MTUs under pacing. Selected `1300`; `1400` is too close to the edge.
 - Made macOS route installation idempotent by deleting stale LiteVPN split-default routes before install and rolling back partial installs on failure.
 - Ensured client VPN mode still runs macOS route cleanup, QUIC close, and endpoint drain when either packet pump exits with an error.
 - Added `--bench-runs` and parsed server-side aggregate stats so repeated tests compare local queued throughput against server-observed delivery/loss.
-- Re-swept paced targets with repeated runs. Kept download `38 Mbps`; lowered upload to `13 Mbps` because `14` and `15 Mbps` showed worse worst-run stability.
+- Re-swept paced targets with repeated runs. Lowered upload to `13 Mbps` because `14` and `15 Mbps` showed worse worst-run stability.
+- Added a QUIC DATAGRAM backlog cap using `frame_tx_datagram` stats. This fixed the upload local/server delivery gap at 13 Mbps. After retesting under RTT spikes, selected download `35 Mbps` for zero-loss stability.
+- OCI networking was left unchanged because UDP `443` is reachable; the observed drops correlate with pacing/RTT rather than Security List or NSG blocking.
 
 ## Next Candidates
 
