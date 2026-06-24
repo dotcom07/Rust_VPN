@@ -190,6 +190,7 @@ Commands:
 - Added `scripts/sweep-wireguard-mtu.sh` to reinstall WireGuard with MTU candidates, run WireGuard-only comparisons, summarize each run, and recommend the best WireGuard MTU baseline.
 - Added client `--connect-retries` and `--connect-retry-delay-ms`; the LiteVPN run/benchmark wrappers now default to three connect attempts to reduce transient timeout failures.
 - Fixed `scripts/bench-vpn-throughput.sh` to start remote `iperf3` detached and wait for the TCP listener before running the client, avoiding empty comparison summaries from startup races.
+- Documented the WireGuard baseline role, generated config layout, server forwarding/NAT setup, mode-switch commands, and why the current LiteVPN userspace QUIC/TUN data plane does not yet match WireGuard.
 
 ## Next Candidates
 

@@ -113,6 +113,11 @@ MODE=stream HOST=ubuntu@YOUR_SERVER_IP KEY=~/.ssh/your_oci_key scripts/run-tun-s
 
 ## WireGuard baseline
 
+WireGuard is an open-source VPN protocol and implementation. In this project it
+is not the LiteVPN data plane; it is a practical baseline and fallback for the
+same MacBook, same OCI Osaka server, and same network path. Comparing against it
+answers: "what can this fixed hardware and route do with a mature VPN?"
+
 WireGuard baseline files are generated under `config/wireguard/`, which is
 ignored by git because it contains private keys.
 
@@ -122,6 +127,21 @@ Install and configure the same OCI server as a WireGuard baseline:
 HOST=ubuntu@YOUR_SERVER_IP KEY=~/.ssh/your_oci_key scripts/setup-wireguard-baseline.sh
 ```
 
+That script:
+
+- generates a server keypair and a client keypair under ignored
+  `config/wireguard/`
+- writes the local macOS client config to `config/wireguard/wg0.conf`
+- installs `/etc/wireguard/wg0.conf` on the OCI server
+- uses tunnel network `10.77.0.0/24`
+- gives the server `10.77.0.1` and the Mac client `10.77.0.2`
+- listens on UDP `443`, the same public port LiteVPN uses
+- enables Linux IPv4 forwarding and NAT masquerade through `ens3`
+- inserts WireGuard forwarding rules before the server's catch-all `REJECT`
+
+Because LiteVPN and WireGuard share UDP `443`, only one server mode can be up at
+a time.
+
 Run either VPN mode from macOS:
 
 ```bash
@@ -129,13 +149,24 @@ HOST=ubuntu@YOUR_SERVER_IP KEY=~/.ssh/your_oci_key scripts/run-vpn-mode.sh --mod
 HOST=ubuntu@YOUR_SERVER_IP KEY=~/.ssh/your_oci_key scripts/run-vpn-mode.sh --mode litevpn
 MODE=wireguard HOST=ubuntu@YOUR_SERVER_IP KEY=~/.ssh/your_oci_key scripts/run-vpn-mode.sh
 MODE=litevpn HOST=ubuntu@YOUR_SERVER_IP KEY=~/.ssh/your_oci_key scripts/run-vpn-mode.sh
+HOST=ubuntu@YOUR_SERVER_IP KEY=~/.ssh/your_oci_key scripts/run-vpn-mode.sh --mode off
 ```
 
 `MODE=wireguard` stops the remote LiteVPN service, starts remote `wg0`, then
 starts local `wg-quick` and restores LiteVPN when the script exits.
 `MODE=litevpn` stops remote `wg0`, starts the LiteVPN service, then starts the
 local LiteVPN client.
+`MODE=off` stops local WireGuard/LiteVPN state, stops remote `wg0`, and restores
+the remote LiteVPN service.
 Both modes check local `sudo` before changing the remote server state.
+
+After starting a mode, verify the public exit IP:
+
+```bash
+curl ifconfig.me
+```
+
+It should show the OCI public IP when full-tunnel routing is active.
 
 With either VPN already running, compare tunnel throughput:
 
@@ -195,6 +226,13 @@ Logs are written under `bench-results/`, which is intentionally ignored by git.
 
 The performance rationale and next experiment ranking are in
 [`PERFORMANCE_THEORY.md`](PERFORMANCE_THEORY.md).
+
+The short version: WireGuard is faster because it is a small purpose-built VPN
+data plane with mature kernel/network-stack integration. LiteVPN currently sends
+TUN packets through a Rust userspace TUN loop and Quinn/QUIC DATAGRAM or stream
+transport, with extra copies, task wakeups, pacing, backlog accounting, and
+loss/latency tradeoffs. LiteVPN is the experimental implementation; WireGuard is
+the baseline to chase, not code we wrote.
 
 Target sweep for comparing candidate pacing limits:
 

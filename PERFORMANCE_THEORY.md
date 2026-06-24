@@ -10,6 +10,8 @@ client, one small OCI Ubuntu server, and no server shape change.
 
 - Selected safe default: QUIC DATAGRAM VPN data plane, MTU `1300`, server
   pacing `36 Mbps` adaptive, client pacing `13 Mbps` static.
+- WireGuard baseline on the same server is the current practical upper bound,
+  not part of LiteVPN's implementation.
 - Best stream-packet upload signal so far: `40 Mbps` can be clean in short
   runs; higher stream targets can deliver all bytes but with heavy QUIC
   retransmission/congestion.
@@ -34,6 +36,58 @@ would be close to:
    or task wakeups.
 4. Explicit pacing tied to RTT/congestion signals.
 5. Bounded queues, with application-level accounting for what was delivered.
+
+## WireGuard Baseline In This Repository
+
+WireGuard is used here as a control experiment. The repository generates
+ignored key material and configs under `config/wireguard/`, installs
+`/etc/wireguard/wg0.conf` on the OCI server, and switches the single UDP `443`
+public port between:
+
+- `litevpn-server` for LiteVPN
+- `wg0` for WireGuard
+
+The WireGuard test network is `10.77.0.0/24`, with server `10.77.0.1` and macOS
+client `10.77.0.2`. Server egress uses Linux IPv4 forwarding plus iptables NAT
+masquerade through `ens3`. The setup script inserts WireGuard forwarding rules
+at the front of the `FORWARD` chain because this OCI image has a catch-all
+`REJECT` later in the chain.
+
+This baseline is intentionally external to LiteVPN. It tells us what a mature
+VPN can do on the same MacBook, same OCI micro server, same Osaka route, and
+same UDP port. It does not mean the LiteVPN data plane already achieved those
+properties.
+
+## Why LiteVPN Does Not Yet Match WireGuard
+
+The gap is expected from the current architecture:
+
+1. WireGuard is purpose-built for VPN packets. LiteVPN currently rides on
+   userspace TUN plus QUIC, so each packet passes through extra runtime layers.
+2. WireGuard's Linux data path has mature kernel/network-stack integration.
+   LiteVPN copies TUN packets into Rust buffers, wraps them as QUIC DATAGRAM or
+   stream frames, then wakes async tasks to move them again.
+3. WireGuard handles packet loss as a lean UDP tunnel. LiteVPN DATAGRAM mode has
+   to choose between dropping under congestion and adding custom pacing/backlog
+   controls; stream mode can recover bytes, but introduces retransmission delay
+   and head-of-line blocking.
+4. LiteVPN currently uses conservative egress pacing to avoid unstable runs:
+   server `36 Mbps` adaptive and client `13 Mbps` static in the selected config.
+   Removing the caps has produced higher short-run numbers, but with loss,
+   congestion events, delivery gaps, or unstable browser behavior.
+5. QUIC adds useful security and transport machinery, but that machinery is not
+   free for a packet tunnel on a tiny VM. Congestion control, ACK processing,
+   packetization, stream flow control, datagram buffering, and userspace
+   scheduling all consume latency budget.
+
+The strongest evidence so far is that stream diagnostics can deliver more
+upload bytes than DATAGRAM, but at the cost of retransmission/congestion. That
+means the path and OCI firewall are not the only limits; LiteVPN's current
+packet delivery strategy is still the main engineering target.
+
+The realistic goal is therefore not "copy WireGuard"; it is to decide how much
+of WireGuard's data-plane discipline LiteVPN can borrow while staying Rust,
+userspace, and easy to deploy as a single binary.
 
 ## QUIC DATAGRAM vs QUIC Stream
 
