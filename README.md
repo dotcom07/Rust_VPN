@@ -122,6 +122,9 @@ HOST=ubuntu@YOUR_SERVER_IP KEY=~/.ssh/your_oci_key scripts/bench-selected.sh
 
 Logs are written under `bench-results/`, which is intentionally ignored by git.
 
+The performance rationale and next experiment ranking are in
+[`PERFORMANCE_THEORY.md`](PERFORMANCE_THEORY.md).
+
 Target sweep for comparing candidate pacing limits:
 
 ```bash
