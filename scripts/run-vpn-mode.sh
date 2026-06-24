@@ -10,6 +10,8 @@ WG_NAME="${WG_NAME:-wg0}"
 WG_CONF="${WG_CONF:-$ROOT/config/wireguard/$WG_NAME.conf}"
 LITEVPN_CONFIG="${LITEVPN_CONFIG:-$ROOT/config/client.toml}"
 RESTORE_LITEVPN="${RESTORE_LITEVPN:-1}"
+LOCAL_WG_UP=0
+CLEANED_UP=0
 
 usage() {
   cat <<'HELP'
@@ -45,6 +47,18 @@ restore_litevpn() {
   remote "sudo wg-quick down '$WG_NAME' >/dev/null 2>&1 || true; sudo systemctl start litevpn-server" || true
 }
 
+cleanup_wireguard() {
+  if [[ "$CLEANED_UP" == "1" ]]; then
+    return
+  fi
+  CLEANED_UP=1
+
+  if [[ "$LOCAL_WG_UP" == "1" ]]; then
+    sudo wg-quick down "$WG_CONF" >/dev/null 2>&1 || true
+  fi
+  restore_litevpn
+}
+
 case "$MODE" in
   wireguard)
     if [[ ! -f "$WG_CONF" ]]; then
@@ -52,19 +66,23 @@ case "$MODE" in
       exit 1
     fi
 
-    trap restore_litevpn EXIT INT TERM
+    echo "Checking local sudo before switching the remote server to WireGuard."
+    sudo -v
+    trap cleanup_wireguard EXIT INT TERM
     remote "sudo systemctl stop litevpn-server; sudo wg-quick down '$WG_NAME' >/dev/null 2>&1 || true; sudo wg-quick up '$WG_NAME'; sudo wg show '$WG_NAME'"
-    echo "Starting local WireGuard. macOS will ask for sudo password."
+    echo "Starting local WireGuard with sudo."
     sudo wg-quick up "$WG_CONF"
+    LOCAL_WG_UP=1
     echo "WireGuard is up. Press Ctrl-C to stop and restore LiteVPN on the server."
-    trap 'sudo wg-quick down "$WG_CONF" >/dev/null 2>&1 || true; restore_litevpn; exit 0' INT TERM
     while true; do
       sleep 3600
     done
     ;;
   litevpn)
+    echo "Checking local sudo before switching the remote server to LiteVPN."
+    sudo -v
     restore_litevpn
-    echo "Starting local LiteVPN. macOS will ask for sudo password."
+    echo "Starting local LiteVPN with sudo."
     sudo "$ROOT/target/release/litevpn-client" --config "$LITEVPN_CONFIG"
     ;;
   *)

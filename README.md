@@ -130,6 +130,7 @@ MODE=litevpn HOST=ubuntu@YOUR_SERVER_IP KEY=~/.ssh/your_oci_key scripts/run-vpn-
 starts local `wg-quick` and restores LiteVPN when the script exits.
 `MODE=litevpn` stops remote `wg0`, starts the LiteVPN service, then starts the
 local LiteVPN client.
+Both modes check local `sudo` before changing the remote server state.
 
 With either VPN already running, compare tunnel throughput:
 
