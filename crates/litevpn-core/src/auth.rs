@@ -11,6 +11,8 @@ pub enum BenchDirection {
     Download,
     StreamUpload,
     StreamDownload,
+    StreamPacketUpload,
+    StreamPacketDownload,
 }
 
 impl BenchDirection {
@@ -20,6 +22,8 @@ impl BenchDirection {
             Self::Download => "download",
             Self::StreamUpload => "stream-upload",
             Self::StreamDownload => "stream-download",
+            Self::StreamPacketUpload => "stream-packet-upload",
+            Self::StreamPacketDownload => "stream-packet-download",
         }
     }
 
@@ -151,7 +155,11 @@ fn parse_mode(line: &str) -> Result<AuthMode> {
         Some("download") => BenchDirection::Download,
         Some("stream-upload") => BenchDirection::StreamUpload,
         Some("stream-download") => BenchDirection::StreamDownload,
-        _ => bail!("bench direction must be upload, download, stream-upload, or stream-download"),
+        Some("stream-packet-upload") => BenchDirection::StreamPacketUpload,
+        Some("stream-packet-download") => BenchDirection::StreamPacketDownload,
+        _ => bail!(
+            "bench direction must be upload, download, stream-upload, stream-download, stream-packet-upload, or stream-packet-download"
+        ),
     };
     let duration_secs = parts
         .next()
@@ -245,6 +253,24 @@ mod tests {
                 "abcdef",
                 AuthMode::Bench {
                     direction: BenchDirection::StreamUpload,
+                    duration_secs: 5,
+                    payload_bytes: 1300,
+                    target_mbps: Some(40)
+                }
+            )
+        );
+    }
+
+    #[test]
+    fn parses_stream_packet_bench_mode() {
+        let mut req = AUTH_MAGIC.to_vec();
+        req.extend_from_slice(b"abcdef\nbench stream-packet-download 5 1300 40\n");
+        assert_eq!(
+            parse_request(&req).unwrap(),
+            (
+                "abcdef",
+                AuthMode::Bench {
+                    direction: BenchDirection::StreamPacketDownload,
                     duration_secs: 5,
                     payload_bytes: 1300,
                     target_mbps: Some(40)

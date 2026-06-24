@@ -19,6 +19,8 @@ Usage:
   DIRECTION=download TARGETS="30 34 38 40" scripts/bench-sweep.sh
   DIRECTION=upload TARGETS="10 12 13" scripts/bench-sweep.sh
   DIRECTION=stream-upload TARGETS="20 40 80" scripts/bench-sweep.sh
+  DIRECTION=stream-packet-upload TARGETS="20 40 60" scripts/bench-sweep.sh
+  DIRECTION=stream-packet-download TARGETS="36 40 50" scripts/bench-sweep.sh
 
 Environment:
   CONFIG=config/client.toml
@@ -35,9 +37,9 @@ HELP
 fi
 
 case "$DIRECTION" in
-  download|upload|stream-download|stream-upload) ;;
+  download|upload|stream-download|stream-upload|stream-packet-download|stream-packet-upload) ;;
   *)
-    echo "DIRECTION must be download, upload, stream-download, or stream-upload" >&2
+    echo "DIRECTION must be download, upload, stream-download, stream-upload, stream-packet-download, or stream-packet-upload" >&2
     exit 1
     ;;
 esac
@@ -128,6 +130,8 @@ for target in $TARGETS; do
       download) local_summary="$(grep '^download received:' "$log" | tail -1 || true)" ;;
       stream-upload) local_summary="$(grep '^stream upload sent:' "$log" | tail -1 || true)" ;;
       stream-download) local_summary="$(grep '^stream download received:' "$log" | tail -1 || true)" ;;
+      stream-packet-upload) local_summary="$(grep '^stream packet upload sent:' "$log" | tail -1 || true)" ;;
+      stream-packet-download) local_summary="$(grep '^stream packet download received:' "$log" | tail -1 || true)" ;;
     esac
     if [[ -n "${local_summary:-}" ]]; then
       local_total_bytes="$(extract_field "$local_summary" "bytes")"

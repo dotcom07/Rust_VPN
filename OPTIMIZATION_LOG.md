@@ -126,6 +126,7 @@ Commands:
 | macOS stale route pre-clean | connectivity | 1300 | probe OK to `161.33.36.181:443`; short selected bench: download `36.03 Mbps`, upload `13.03 Mbps` | bench loss/congestion 0 | Client now checks for stale split-default routes before connecting, removes them when present, and supports `--cleanup-routes`; this targets reconnect timeouts after abnormal client exit |
 | Stream finish ACK wait | stream-download | 1300 | 60 Mbps target no longer reset; avg `33.18 Mbps` in 5s x2, later short run selected `43.66 Mbps` actual | byte gap 0; high retransmission/congestion at 50-60 targets | Wait for QUIC stream data acknowledgement after `finish()` in stream diagnostics; fixes premature peer reset under loss but stream high-target downlink remains too loss-heavy for default VPN mode |
 | Upload stability resweep | upload | 1300 | selected `13.03 Mbps` in 5s x2 sweep | 9-12 Mbps had transient client loss or byte gaps; 13 Mbps had byte gap 0 and loss/congestion 0 in this sweep | Keep upload target `13 Mbps`; path variance means selected bench failures should be followed by a target sweep before changing defaults |
+| Stream packet benchmark | stream-packet | 1300 | upload: `40.07 Mbps` clean in 5s x2, `60`/`80` targets delivered about `52`/`52 Mbps` with heavy retransmission; download: `36 Mbps` stable, `50` target delivered `43.41 Mbps` with high retransmission; post-change DATAGRAM sanity: `36.06/13.04 Mbps` | byte gap 0 for packet-mode stream tests; DATAGRAM sanity loss/congestion 0 | Added length-prefixed stream packet benchmarks matching `vpn_transport = "stream"` framing and made framed writes non-cancellable mid-packet; stream remains a strong upload candidate but needs full TUN latency testing |
 | Paced MTU retest | download | 1350 | 37.82 Mbps | 47,548,350 bytes / 10s | 0 server loss, higher RTT |
 | Paced MTU retest | download | 1400 | 39.99 Mbps | 47,353,600 bytes / 10s | 0 server loss at 38 target, but edge-risk |
 | Paced MTU edge check | download | 1400 | failed | n/a | `datagram too large` at 45 Mbps target |
@@ -167,6 +168,8 @@ Commands:
 - Added pre-connect macOS route cleanup plus `--cleanup-routes` so stale split-default routes left by a crash or forced kill cannot trap the next QUIC connect attempt inside the old tunnel route.
 - Added `finish_stream_with_ack` for stream diagnostics so benchmark streams are not dropped before peer acknowledgement under retransmission pressure.
 - Changed `scripts/bench-sweep.sh` selection to choose the delivery-ok candidate with the highest server-observed Mbps instead of blindly keeping the highest target.
+- Added `stream-packet-upload` and `stream-packet-download` benchmarks that use the same length-prefixed packet framing as experimental stream VPN mode.
+- Coalesced stream packet writes into one framed write and avoided cancelling framed writes mid-packet, fixing `stream ended mid-frame` failures at aggressive upload targets.
 
 ## Next Candidates
 

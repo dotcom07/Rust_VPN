@@ -17,7 +17,7 @@ use litevpn_core::{
     quic::{
         DatagramBacklog, EgressPacer, connection_stats_summary, create_udp_socket,
         ensure_datagram_capacity, finish_stream_with_ack, pump_quic_to_tun, pump_stream_to_tun,
-        pump_tun_to_quic, pump_tun_to_stream,
+        pump_tun_to_quic, pump_tun_to_stream, read_stream_packet, write_stream_packet,
     },
     tun::{TunDevice, TunOptions, create_tun},
 };
@@ -289,7 +289,8 @@ async fn run_bench(
             .await
         }
         BenchDirection::StreamUpload => {
-            run_stream_upload_bench(connection, duration_secs, payload_bytes, target_mbps).await
+            run_stream_upload_bench(connection, duration_secs, payload_bytes, target_mbps, false)
+                .await
         }
         BenchDirection::StreamDownload => {
             run_stream_download_bench(
@@ -298,6 +299,22 @@ async fn run_bench(
                 payload_bytes,
                 target_mbps,
                 adaptive_egress,
+                false,
+            )
+            .await
+        }
+        BenchDirection::StreamPacketUpload => {
+            run_stream_upload_bench(connection, duration_secs, payload_bytes, target_mbps, true)
+                .await
+        }
+        BenchDirection::StreamPacketDownload => {
+            run_stream_download_bench(
+                connection,
+                duration_secs,
+                payload_bytes,
+                target_mbps,
+                adaptive_egress,
+                true,
             )
             .await
         }
@@ -423,6 +440,7 @@ async fn run_stream_upload_bench(
     duration_secs: u64,
     payload_bytes: usize,
     target_mbps: Option<u64>,
+    framed: bool,
 ) -> Result<()> {
     let mut stream = connection
         .accept_uni()
@@ -434,21 +452,46 @@ async fn run_stream_upload_bench(
     let mut packets = 0_u64;
     let mut bytes = 0_u64;
 
-    loop {
-        match timeout_at(deadline, stream.read(&mut buf)).await {
-            Ok(Ok(Some(n))) => {
-                packets += 1;
-                bytes += n as u64;
+    if framed {
+        loop {
+            match timeout_at(
+                deadline,
+                read_stream_packet(&mut stream, &mut buf, "stream bench"),
+            )
+            .await
+            {
+                Ok(Ok(Some(0))) => {}
+                Ok(Ok(Some(n))) => {
+                    packets += 1;
+                    bytes += n as u64;
+                }
+                Ok(Ok(None)) => break,
+                Ok(Err(error)) => return Err(error),
+                Err(_) => break,
             }
-            Ok(Ok(None)) => break,
-            Ok(Err(error)) => return Err(error.into()),
-            Err(_) => break,
+        }
+    } else {
+        loop {
+            match timeout_at(deadline, stream.read(&mut buf)).await {
+                Ok(Ok(Some(n))) => {
+                    packets += 1;
+                    bytes += n as u64;
+                }
+                Ok(Ok(None)) => break,
+                Ok(Err(error)) => return Err(error.into()),
+                Err(_) => break,
+            }
         }
     }
 
+    let direction = if framed {
+        "stream-packet-upload"
+    } else {
+        "stream-upload"
+    };
     send_bench_summary(
         &connection,
-        "stream-upload",
+        direction,
         started.elapsed(),
         Duration::from_secs(duration_secs),
         bytes,
@@ -462,6 +505,7 @@ async fn run_stream_upload_bench(
         packets,
         payload_bytes,
         elapsed_ms = started.elapsed().as_millis(),
+        framed,
         "stream upload bench complete"
     );
     Ok(())
@@ -473,8 +517,10 @@ async fn run_stream_download_bench(
     payload_bytes: usize,
     target_mbps: Option<u64>,
     adaptive_egress: bool,
+    framed: bool,
 ) -> Result<()> {
     let payload = vec![0_u8; payload_bytes];
+    let mut frame = vec![0_u8; payload_bytes + 2];
     let mut stream = connection
         .open_uni()
         .await
@@ -489,22 +535,44 @@ async fn run_stream_download_bench(
         if Instant::now() >= deadline {
             break;
         }
-        match timeout_at(deadline, stream.write(&payload)).await {
-            Ok(Ok(0)) => break,
-            Ok(Ok(n)) => {
-                packets += 1;
-                bytes += n as u64;
-                pacer.record_and_wait(n, Some(&connection)).await;
+        if framed {
+            tokio::select! {
+                result = write_stream_packet(&mut stream, &mut frame, &payload, "stream bench") => {
+                    result?;
+                    packets += 1;
+                    bytes += payload_bytes as u64;
+                    pacer
+                        .record_and_wait(payload_bytes, Some(&connection))
+                        .await;
+                }
+                reason = connection.closed() => {
+                    warn!(%reason, "stream packet download bench connection closed");
+                    break;
+                }
             }
-            Ok(Err(error)) => return Err(error.into()),
-            Err(_) => break,
+        } else {
+            match timeout_at(deadline, stream.write(&payload)).await {
+                Ok(Ok(0)) => break,
+                Ok(Ok(n)) => {
+                    packets += 1;
+                    bytes += n as u64;
+                    pacer.record_and_wait(n, Some(&connection)).await;
+                }
+                Ok(Err(error)) => return Err(error.into()),
+                Err(_) => break,
+            }
         }
     }
     finish_stream_with_ack(&mut stream, "stream download").await?;
 
+    let direction = if framed {
+        "stream-packet-download"
+    } else {
+        "stream-download"
+    };
     send_bench_summary(
         &connection,
-        "stream-download",
+        direction,
         started.elapsed(),
         started.elapsed(),
         bytes,
@@ -518,6 +586,7 @@ async fn run_stream_download_bench(
         packets,
         payload_bytes,
         elapsed_ms = started.elapsed().as_millis(),
+        framed,
         "stream download bench complete"
     );
     Ok(())

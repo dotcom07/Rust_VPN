@@ -117,4 +117,6 @@ DIRECTION=download TARGETS="30 34 38 40" scripts/bench-sweep.sh
 DIRECTION=upload TARGETS="10 12 13" scripts/bench-sweep.sh
 DIRECTION=stream-upload TARGETS="13 20 40" scripts/bench-sweep.sh
 DIRECTION=stream-download TARGETS="36 50" scripts/bench-sweep.sh
+DIRECTION=stream-packet-upload TARGETS="20 40 60" scripts/bench-sweep.sh
+DIRECTION=stream-packet-download TARGETS="36 40 50" scripts/bench-sweep.sh
 ```

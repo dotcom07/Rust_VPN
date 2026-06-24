@@ -10,7 +10,7 @@ use litevpn_core::{
     quic::{
         DatagramBacklog, EgressPacer, connection_stats_summary, create_udp_socket,
         ensure_datagram_capacity, finish_stream_with_ack, pump_quic_to_tun, pump_stream_to_tun,
-        pump_tun_to_quic, pump_tun_to_stream,
+        pump_tun_to_quic, pump_tun_to_stream, read_stream_packet, write_stream_packet,
     },
     tun::{TunOptions, create_tun},
 };
@@ -44,7 +44,7 @@ struct Args {
     #[arg(long, default_value_t = 10)]
     connect_timeout_secs: u64,
 
-    #[arg(long, value_parser = ["upload", "download", "stream-upload", "stream-download"])]
+    #[arg(long, value_parser = ["upload", "download", "stream-upload", "stream-download", "stream-packet-upload", "stream-packet-download"])]
     bench: Option<String>,
 
     #[arg(long, default_value_t = 10)]
@@ -331,7 +331,11 @@ fn parse_bench_direction(value: &str) -> Result<BenchDirection> {
         "download" => Ok(BenchDirection::Download),
         "stream-upload" => Ok(BenchDirection::StreamUpload),
         "stream-download" => Ok(BenchDirection::StreamDownload),
-        _ => bail!("bench must be upload, download, stream-upload, or stream-download"),
+        "stream-packet-upload" => Ok(BenchDirection::StreamPacketUpload),
+        "stream-packet-download" => Ok(BenchDirection::StreamPacketDownload),
+        _ => bail!(
+            "bench must be upload, download, stream-upload, stream-download, stream-packet-upload, or stream-packet-download"
+        ),
     }
 }
 
@@ -479,11 +483,28 @@ async fn run_bench(
                 payload_bytes,
                 target_mbps,
                 adaptive_egress,
+                false,
             )
             .await
         }
         BenchDirection::StreamDownload => {
-            run_stream_download_bench(connection, duration_secs, payload_bytes, target_mbps).await
+            run_stream_download_bench(connection, duration_secs, payload_bytes, target_mbps, false)
+                .await
+        }
+        BenchDirection::StreamPacketUpload => {
+            run_stream_upload_bench(
+                connection,
+                duration_secs,
+                payload_bytes,
+                target_mbps,
+                adaptive_egress,
+                true,
+            )
+            .await
+        }
+        BenchDirection::StreamPacketDownload => {
+            run_stream_download_bench(connection, duration_secs, payload_bytes, target_mbps, true)
+                .await
         }
     }
 }
@@ -606,8 +627,10 @@ async fn run_stream_upload_bench(
     payload_bytes: usize,
     target_mbps: Option<u64>,
     adaptive_egress: bool,
+    framed: bool,
 ) -> Result<BenchMeasurement> {
     let payload = vec![0_u8; payload_bytes];
+    let mut frame = vec![0_u8; payload_bytes + 2];
     let mut stream = connection
         .open_uni()
         .await
@@ -622,15 +645,29 @@ async fn run_stream_upload_bench(
         if Instant::now() >= deadline {
             break;
         }
-        match timeout_at(deadline, stream.write(&payload)).await {
-            Ok(Ok(0)) => break,
-            Ok(Ok(n)) => {
-                packets += 1;
-                bytes += n as u64;
-                pacer.record_and_wait(n, Some(connection)).await;
+        if framed {
+            tokio::select! {
+                result = write_stream_packet(&mut stream, &mut frame, &payload, "stream bench") => {
+                    result?;
+                    packets += 1;
+                    bytes += payload_bytes as u64;
+                    pacer.record_and_wait(payload_bytes, Some(connection)).await;
+                }
+                reason = connection.closed() => {
+                    bail!("connection closed during stream packet upload bench: {reason}");
+                }
             }
-            Ok(Err(error)) => return Err(error.into()),
-            Err(_) => break,
+        } else {
+            match timeout_at(deadline, stream.write(&payload)).await {
+                Ok(Ok(0)) => break,
+                Ok(Ok(n)) => {
+                    packets += 1;
+                    bytes += n as u64;
+                    pacer.record_and_wait(n, Some(connection)).await;
+                }
+                Ok(Err(error)) => return Err(error.into()),
+                Err(_) => break,
+            }
         }
     }
     finish_stream_with_ack(&mut stream, "stream upload").await?;
@@ -642,14 +679,12 @@ async fn run_stream_upload_bench(
     )
     .await
     .context("timed out waiting for stream bench summary")??;
-    print_local_bench(
-        "stream upload sent",
-        elapsed,
-        bytes,
-        packets,
-        payload_bytes,
-        target_mbps,
-    );
+    let label = if framed {
+        "stream packet upload sent"
+    } else {
+        "stream upload sent"
+    };
+    print_local_bench(label, elapsed, bytes, packets, payload_bytes, target_mbps);
     println!("client stats: {}", connection_stats_summary(connection));
     println!("server {summary}");
     sleep(Duration::from_millis(100)).await;
@@ -666,6 +701,7 @@ async fn run_stream_download_bench(
     duration_secs: u64,
     payload_bytes: usize,
     target_mbps: Option<u64>,
+    framed: bool,
 ) -> Result<BenchMeasurement> {
     let mut stream = connection
         .accept_uni()
@@ -677,15 +713,35 @@ async fn run_stream_download_bench(
     let mut packets = 0_u64;
     let mut bytes = 0_u64;
 
-    loop {
-        match timeout_at(deadline, stream.read(&mut buf)).await {
-            Ok(Ok(Some(n))) => {
-                packets += 1;
-                bytes += n as u64;
+    if framed {
+        loop {
+            match timeout_at(
+                deadline,
+                read_stream_packet(&mut stream, &mut buf, "stream bench"),
+            )
+            .await
+            {
+                Ok(Ok(Some(0))) => {}
+                Ok(Ok(Some(n))) => {
+                    packets += 1;
+                    bytes += n as u64;
+                }
+                Ok(Ok(None)) => break,
+                Ok(Err(error)) => return Err(error),
+                Err(_) => bail!("timed out waiting for stream packet download"),
             }
-            Ok(Ok(None)) => break,
-            Ok(Err(error)) => return Err(error.into()),
-            Err(_) => bail!("timed out waiting for stream download"),
+        }
+    } else {
+        loop {
+            match timeout_at(deadline, stream.read(&mut buf)).await {
+                Ok(Ok(Some(n))) => {
+                    packets += 1;
+                    bytes += n as u64;
+                }
+                Ok(Ok(None)) => break,
+                Ok(Err(error)) => return Err(error.into()),
+                Err(_) => bail!("timed out waiting for stream download"),
+            }
         }
     }
 
@@ -695,8 +751,13 @@ async fn run_stream_download_bench(
     )
     .await
     .context("timed out waiting for stream bench summary")??;
+    let label = if framed {
+        "stream packet download received"
+    } else {
+        "stream download received"
+    };
     print_local_bench(
-        "stream download received",
+        label,
         started.elapsed(),
         bytes,
         packets,
