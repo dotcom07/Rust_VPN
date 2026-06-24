@@ -139,6 +139,14 @@ MODE=wireguard HOST=ubuntu@YOUR_SERVER_IP KEY=~/.ssh/your_oci_key scripts/bench-
 MODE=litevpn HOST=ubuntu@YOUR_SERVER_IP KEY=~/.ssh/your_oci_key scripts/bench-vpn-throughput.sh
 ```
 
+Or run both modes sequentially with one command:
+
+```bash
+HOST=ubuntu@YOUR_SERVER_IP KEY=~/.ssh/your_oci_key scripts/compare-vpn-modes.sh
+```
+
+Comparison logs are written under `bench-results/vpn-compare-*`.
+
 Server runtime/network snapshot:
 
 ```bash
