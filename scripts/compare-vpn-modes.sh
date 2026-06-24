@@ -13,6 +13,7 @@ PARALLEL="${PARALLEL:-1}"
 OUT_DIR="${OUT_DIR:-bench-results}"
 RUN_MODES="${RUN_MODES:-wireguard litevpn}"
 WG_QUICK_BIN="${WG_QUICK_BIN:-}"
+PREFLIGHT=0
 
 LITEVPN_PID=""
 LOCAL_WG_UP=0
@@ -24,8 +25,10 @@ SUMMARY="$COMPARE_DIR/summary.csv"
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   cat <<'HELP'
 Usage:
+  scripts/compare-vpn-modes.sh --preflight
   HOST=ubuntu@161.33.36.181 KEY=/Users/sungje/.ssh/oracle_oci_ed25519 scripts/compare-vpn-modes.sh
 
+Checks prerequisites without local sudo when run with --preflight.
 Runs WireGuard and LiteVPN sequentially, benchmarks each tunnel with iperf3,
 and writes logs under bench-results/vpn-compare-*/.
 
@@ -38,6 +41,15 @@ Environment:
   LITEVPN_CONFIG=config/client.toml
 HELP
   exit 0
+fi
+
+if [[ "${1:-}" == "--preflight" ]]; then
+  PREFLIGHT=1
+  shift
+elif [[ "${1:-}" != "" ]]; then
+  echo "unknown argument: $1" >&2
+  echo "run with --help for usage" >&2
+  exit 1
 fi
 
 need() {
@@ -145,6 +157,90 @@ run_litevpn() {
   run_bench litevpn
   stop_local_litevpn
 }
+
+check_local_cmd() {
+  if command -v "$1" >/dev/null 2>&1; then
+    echo "local_cmd:$1=$(command -v "$1")"
+  else
+    echo "missing local command: $1" >&2
+    return 1
+  fi
+}
+
+check_local_file() {
+  if [[ -f "$1" ]]; then
+    echo "local_file:$1=ok"
+  else
+    echo "missing local file: $1" >&2
+    return 1
+  fi
+}
+
+preflight() {
+  local ok=1
+  local endpoint=""
+
+  echo "== VPN comparison preflight =="
+  echo "host=$HOST"
+  echo "wg_conf=$WG_CONF"
+  echo "litevpn_config=$LITEVPN_CONFIG"
+  echo "note=WireGuard uses UDP 443 by stopping remote litevpn-server before wg0 starts."
+
+  for cmd in ssh sudo wg wg-quick wireguard-go iperf3 jq ping; do
+    check_local_cmd "$cmd" || ok=0
+  done
+
+  if [[ -z "$WG_QUICK_BIN" ]] && command -v wg-quick >/dev/null 2>&1; then
+    WG_QUICK_BIN="$(command -v wg-quick)"
+  fi
+  if [[ -n "$WG_QUICK_BIN" ]]; then
+    if [[ -x "$WG_QUICK_BIN" ]]; then
+      echo "wg_quick_bin=$WG_QUICK_BIN"
+    else
+      echo "wg_quick_bin_not_executable=$WG_QUICK_BIN" >&2
+      ok=0
+    fi
+  fi
+
+  check_local_file "$WG_CONF" || ok=0
+  check_local_file "$LITEVPN_CONFIG" || ok=0
+  check_local_file "$ROOT/target/release/litevpn-client" || ok=0
+
+  if [[ -f "$WG_CONF" ]]; then
+    endpoint="$(awk -F' = ' '$1 == "Endpoint" { print $2; exit }' "$WG_CONF")"
+    [[ -n "$endpoint" ]] && echo "wireguard_endpoint=$endpoint"
+  fi
+
+  if [[ -d "$ROOT/.git" ]] && command -v git >/dev/null 2>&1; then
+    if git -C "$ROOT" check-ignore -q "$WG_CONF"; then
+      echo "git_ignore:$WG_CONF=ok"
+    else
+      echo "git_ignore:$WG_CONF=missing" >&2
+      ok=0
+    fi
+  fi
+
+  echo
+  echo "== remote checks =="
+  if remote "sudo -n true && sudo -n test -f '/etc/wireguard/$WG_NAME.conf' && command -v wg && command -v wg-quick && command -v iperf3 && systemctl is-active litevpn-server"; then
+    echo "remote_preflight=ok"
+  else
+    echo "remote_preflight=failed" >&2
+    ok=0
+  fi
+
+  if [[ "$ok" == "1" ]]; then
+    echo "preflight_ok=1"
+  else
+    echo "preflight_ok=0"
+    return 1
+  fi
+}
+
+if [[ "$PREFLIGHT" == "1" ]]; then
+  preflight
+  exit $?
+fi
 
 need ssh
 need sudo

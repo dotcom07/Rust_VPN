@@ -183,6 +183,7 @@ Commands:
 - Reduced the pacing burst window to 5ms and split DATAGRAM payload delivery from strict zero-loss clean selection in `scripts/bench-sweep.sh`.
 - Added WireGuard baseline setup/run/throughput scripts. Generated WireGuard configs live under ignored `config/wireguard/`; the local-only optimization report remains ignored too.
 - Added `scripts/compare-vpn-modes.sh` to run WireGuard and LiteVPN sequentially, collect ping/iperf3 tunnel logs plus a combined `summary.csv` under `bench-results/vpn-compare-*`, and restore the remote LiteVPN service afterward.
+- Added `scripts/compare-vpn-modes.sh --preflight` to verify local tools/config and remote WireGuard/LiteVPN prerequisites before asking for local `sudo`.
 
 ## Next Candidates
 
