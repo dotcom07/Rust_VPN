@@ -121,6 +121,7 @@ Commands:
 | Low-target upload check | upload | 1300 | 9.01 Mbps local / 9.00 Mbps server; 12.01 Mbps local / 11.95 Mbps server | 33,787,000 local bytes / 33,761,000 server bytes at 9 Mbps target | Even 9-12 Mbps static targets showed client loss or delivery gaps during RTT spikes; target selection alone is insufficient |
 | Stream upload diagnostic | stream-upload | 1300 | 13.01 Mbps local / 13.01 Mbps server; 20 target avg 19.07 Mbps; 40 target avg 29.20 Mbps | byte gap 0 for all targets | Reliable QUIC stream delivered all bytes despite path loss/retransmission; upload gaps are DATAGRAM-specific, not pure reachability |
 | Stream download diagnostic | stream-download | 1300 | 36 target avg 35.68 Mbps; 50 target avg 39.87 Mbps | byte gap 0 for all targets | Stream download can burst higher but suffers retransmission/RTT variance; selected DATAGRAM download 36 remains the stable VPN-mode target |
+| Stream VPN mode prototype | mixed | 1300 | DATAGRAM selected sanity: download 35.80 Mbps local / 35.83 Mbps server; upload 13.02 Mbps local / 13.03 Mbps server | Stream-upload 20 Mbps: 20.04 Mbps local/server, byte gap 0 | Added optional `vpn_transport = "stream"` packet mode; full macOS TUN run not automated because noninteractive sudo required a password |
 | Paced MTU retest | download | 1350 | 37.82 Mbps | 47,548,350 bytes / 10s | 0 server loss, higher RTT |
 | Paced MTU retest | download | 1400 | 39.99 Mbps | 47,353,600 bytes / 10s | 0 server loss at 38 target, but edge-risk |
 | Paced MTU edge check | download | 1400 | failed | n/a | `datagram too large` at 45 Mbps target |
@@ -157,10 +158,12 @@ Commands:
 - Retested client-side adaptive after tightening delivery checks. A gentler low-rate adaptive prototype improved average send rate but still failed delivery-gap checks, so it was reverted.
 - Added `stream-upload` and `stream-download` benchmarks over reliable QUIC unidirectional streams, and opened four unidirectional streams in the transport config for diagnostics.
 - Stream diagnostics show the same path can deliver exact bytes above the DATAGRAM upload limit when reliability is provided by QUIC streams. This points away from OCI firewall/NIC loss and toward DATAGRAM reliability/queueing tradeoffs.
+- Added experimental `vpn_transport = "stream"` mode using length-prefixed TUN packets over reliable QUIC unidirectional streams. Defaults remain `datagram`; stream mode needs an interactive macOS sudo/TUN smoke test before selection.
 
 ## Next Candidates
 
 - Run a sudo TUN-mode browser/fast.com smoke test from macOS when an interactive password is available.
 - Compare against kernel WireGuard on the same OCI instance as the theoretical performance target.
-- Inspect whether a stream-based VPN mode is acceptable despite head-of-line blocking, or keep DATAGRAM mode and add a tiny app-level repair/FEC layer for selected packet classes.
+- Compare DATAGRAM vs `vpn_transport = "stream"` in full TUN mode with Fast.com and packet loss-sensitive traffic.
+- If stream mode shows user-facing gains, tune stream receive/send windows; if it hurts latency, keep DATAGRAM mode and add a tiny app-level repair/FEC layer for selected packet classes.
 - Inspect QUIC ACK/MTU discovery settings that directly affect DATAGRAM behavior under loss.

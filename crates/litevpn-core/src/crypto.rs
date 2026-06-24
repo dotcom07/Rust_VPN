@@ -129,7 +129,7 @@ fn tune_transport(
         ))
         .initial_mtu(quic_initial_mtu)
         .receive_window(VarInt::from_u32(8 * 1024 * 1024))
-        .stream_receive_window(VarInt::from_u32(512 * 1024))
+        .stream_receive_window(VarInt::from_u32(2 * 1024 * 1024))
         .send_window(8 * 1024 * 1024)
         .enable_segmentation_offload(true)
         .send_fairness(false);

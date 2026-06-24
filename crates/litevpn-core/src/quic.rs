@@ -2,7 +2,7 @@ use std::net::{SocketAddr, UdpSocket};
 
 use anyhow::{Context, Result, bail};
 use bytes::Bytes;
-use quinn::Connection;
+use quinn::{Connection, RecvStream, SendStream};
 use socket2::{Domain, Protocol, Socket, Type};
 use tokio::time::{Duration, Instant, sleep, sleep_until};
 use tracing::{debug, trace};
@@ -314,6 +314,88 @@ pub async fn pump_quic_to_tun(
         }
         trace!(label, packet_bytes = written, "quic -> tun");
     }
+}
+
+pub async fn pump_tun_to_stream(
+    device: &AsyncDevice,
+    mut stream: SendStream,
+    connection: Connection,
+    mtu: usize,
+    label: &'static str,
+    egress_target_mbps: u64,
+    adaptive_egress: bool,
+) -> Result<()> {
+    let mut buf = vec![0_u8; mtu + 64];
+    let mut pacer = EgressPacer::new(egress_target_mbps, mtu, adaptive_egress);
+    loop {
+        let n = tokio::select! {
+            result = device.recv(&mut buf) => result?,
+            reason = connection.closed() => {
+                bail!("{label}: connection closed while waiting for tun packet: {reason}");
+            }
+        };
+        if n == 0 {
+            continue;
+        }
+        if n > u16::MAX as usize {
+            bail!("{label}: stream packet is too large: {n} bytes");
+        }
+
+        let len = (n as u16).to_be_bytes();
+        stream.write_all(&len).await?;
+        stream.write_all(&buf[..n]).await?;
+        trace!(label, packet_bytes = n, "tun -> stream");
+        pacer.record_and_wait(n, Some(&connection)).await;
+    }
+}
+
+pub async fn pump_stream_to_tun(
+    device: &AsyncDevice,
+    mut stream: RecvStream,
+    max_packet_bytes: usize,
+    label: &'static str,
+) -> Result<()> {
+    let mut header = [0_u8; 2];
+    let mut buf = vec![0_u8; max_packet_bytes];
+    loop {
+        if !read_stream_exact_or_eof(&mut stream, &mut header, label).await? {
+            return Ok(());
+        }
+        let packet_len = u16::from_be_bytes(header) as usize;
+        if packet_len == 0 {
+            continue;
+        }
+        if packet_len > buf.len() {
+            bail!("{label}: stream packet {packet_len} bytes exceeds max {max_packet_bytes} bytes");
+        }
+        read_stream_exact_or_eof(&mut stream, &mut buf[..packet_len], label)
+            .await?
+            .then_some(())
+            .with_context(|| format!("{label}: stream ended mid-packet"))?;
+
+        let written = device.send(&buf[..packet_len]).await?;
+        if written != packet_len {
+            bail!("{label}: partial tun write: wrote {written} of {packet_len} bytes");
+        }
+        trace!(label, packet_bytes = written, "stream -> tun");
+    }
+}
+
+async fn read_stream_exact_or_eof(
+    stream: &mut RecvStream,
+    buf: &mut [u8],
+    label: &'static str,
+) -> Result<bool> {
+    let mut offset = 0;
+    while offset < buf.len() {
+        match stream.read(&mut buf[offset..]).await? {
+            Some(0) => {}
+            Some(n) => offset += n,
+            None if offset == 0 => return Ok(false),
+            None => bail!("{label}: stream ended mid-frame"),
+        }
+    }
+    Ok(true)
 }
 
 fn target_bytes_per_sec(target_mbps: u64) -> Option<f64> {

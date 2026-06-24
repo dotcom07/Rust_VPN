@@ -80,6 +80,8 @@ Repeated benchmark output includes local send/receive aggregate stats and parsed
 
 `datagram_backlog_packets` caps queued QUIC DATAGRAMs that have not reached Quinn's transmit stats yet. `64` is the selected default for this path; `0` disables the cap.
 
+`vpn_transport = "datagram"` is the selected VPN data plane. `vpn_transport = "stream"` enables the experimental reliable QUIC stream packet mode; it is useful for diagnostics and may improve delivery under loss, but can introduce head-of-line blocking.
+
 Server runtime/network snapshot:
 
 ```bash

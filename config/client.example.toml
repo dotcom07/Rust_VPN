@@ -16,3 +16,4 @@ udp_send_buffer_bytes = 0
 egress_target_mbps = 13
 datagram_backlog_packets = 64
 adaptive_egress = false
+vpn_transport = "datagram"

@@ -12,11 +12,12 @@ use bytes::Bytes;
 use clap::Parser;
 use litevpn_core::{
     auth::{AuthMode, BenchDirection, server_authenticate},
-    config::{ServerConfig, load_token, load_toml},
+    config::{ServerConfig, VpnTransportMode, load_token, load_toml},
     crypto,
     quic::{
         DatagramBacklog, EgressPacer, connection_stats_summary, create_udp_socket,
-        ensure_datagram_capacity, pump_quic_to_tun, pump_tun_to_quic,
+        ensure_datagram_capacity, pump_quic_to_tun, pump_stream_to_tun, pump_tun_to_quic,
+        pump_tun_to_stream,
     },
     tun::{TunDevice, TunOptions, create_tun},
 };
@@ -93,6 +94,7 @@ async fn main() -> Result<()> {
         external_interface = %config.external_interface,
         egress_target_mbps = config.egress_target_mbps,
         adaptive_egress = config.adaptive_egress,
+        vpn_transport = ?config.vpn_transport,
         "litevpn server ready"
     );
 
@@ -109,6 +111,7 @@ async fn main() -> Result<()> {
         let egress_target_mbps = config.egress_target_mbps;
         let datagram_backlog_packets = config.datagram_backlog_packets;
         let adaptive_egress = config.adaptive_egress;
+        let vpn_transport = config.vpn_transport;
 
         tokio::spawn(async move {
             let mut client_id = None;
@@ -120,6 +123,7 @@ async fn main() -> Result<()> {
                 egress_target_mbps,
                 datagram_backlog_packets,
                 adaptive_egress,
+                vpn_transport,
                 active.clone(),
                 next_client_id,
                 &mut client_id,
@@ -152,6 +156,7 @@ async fn handle_connection(
     egress_target_mbps: u64,
     datagram_backlog_packets: u64,
     adaptive_egress: bool,
+    vpn_transport: VpnTransportMode,
     active: Arc<Mutex<Option<ActiveClient>>>,
     next_client_id: Arc<AtomicU64>,
     client_id: &mut Option<u64>,
@@ -186,7 +191,9 @@ async fn handle_connection(
         .await;
     }
 
-    ensure_datagram_capacity(&connection, mtu, "server")?;
+    if vpn_transport == VpnTransportMode::Datagram {
+        ensure_datagram_capacity(&connection, mtu, "server")?;
+    }
 
     let id = next_client_id.fetch_add(1, Ordering::Relaxed);
     *client_id = Some(id);
@@ -208,20 +215,49 @@ async fn handle_connection(
             .close(0_u32.into(), b"replaced by new authenticated client");
     }
 
-    let up = pump_tun_to_quic(
-        &device,
-        connection.clone(),
-        mtu,
-        "server",
-        egress_target_mbps,
-        datagram_backlog_packets,
-        adaptive_egress,
-    );
-    let down = pump_quic_to_tun(&device, connection.clone(), "server");
+    match vpn_transport {
+        VpnTransportMode::Datagram => {
+            let up = pump_tun_to_quic(
+                &device,
+                connection.clone(),
+                mtu,
+                "server",
+                egress_target_mbps,
+                datagram_backlog_packets,
+                adaptive_egress,
+            );
+            let down = pump_quic_to_tun(&device, connection.clone(), "server");
 
-    tokio::select! {
-        result = up => result?,
-        result = down => result?,
+            tokio::select! {
+                result = up => result?,
+                result = down => result?,
+            }
+        }
+        VpnTransportMode::Stream => {
+            let send_stream = connection
+                .open_uni()
+                .await
+                .context("failed to open server packet stream")?;
+            let recv_stream = connection
+                .accept_uni()
+                .await
+                .context("failed to accept client packet stream")?;
+            let up = pump_tun_to_stream(
+                &device,
+                send_stream,
+                connection.clone(),
+                mtu,
+                "server",
+                egress_target_mbps,
+                adaptive_egress,
+            );
+            let down = pump_stream_to_tun(&device, recv_stream, mtu + 64, "server");
+
+            tokio::select! {
+                result = up => result?,
+                result = down => result?,
+            }
+        }
     }
 
     error!("unreachable pump exit");

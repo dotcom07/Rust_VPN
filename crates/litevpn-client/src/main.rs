@@ -5,11 +5,12 @@ use bytes::Bytes;
 use clap::Parser;
 use litevpn_core::{
     auth::{AuthMode, BenchDirection, client_authenticate_with_mode},
-    config::{ClientConfig, load_token, load_toml},
+    config::{ClientConfig, VpnTransportMode, load_token, load_toml},
     crypto,
     quic::{
         DatagramBacklog, EgressPacer, connection_stats_summary, create_udp_socket,
-        ensure_datagram_capacity, pump_quic_to_tun, pump_tun_to_quic,
+        ensure_datagram_capacity, pump_quic_to_tun, pump_stream_to_tun, pump_tun_to_quic,
+        pump_tun_to_stream,
     },
     tun::{TunOptions, create_tun},
 };
@@ -172,7 +173,9 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    ensure_datagram_capacity(&connection, config.mtu as usize, "client")?;
+    if config.vpn_transport == VpnTransportMode::Datagram {
+        ensure_datagram_capacity(&connection, config.mtu as usize, "client")?;
+    }
 
     let device = create_tun(TunOptions {
         name: config.tun_name.clone(),
@@ -190,6 +193,7 @@ async fn main() -> Result<()> {
         mtu = config.mtu,
         egress_target_mbps = config.egress_target_mbps,
         adaptive_egress = config.adaptive_egress,
+        vpn_transport = ?config.vpn_transport,
         "client tun ready"
     );
 
@@ -206,27 +210,49 @@ async fn main() -> Result<()> {
     }
 
     let device = Arc::new(device);
-    let up = pump_tun_to_quic(
-        &device,
-        connection.clone(),
-        config.mtu as usize,
-        "client",
-        config.egress_target_mbps,
-        config.datagram_backlog_packets,
-        config.adaptive_egress,
-    );
-    let down = pump_quic_to_tun(&device, connection.clone(), "client");
+    let run_result = match config.vpn_transport {
+        VpnTransportMode::Datagram => {
+            let up = pump_tun_to_quic(
+                &device,
+                connection.clone(),
+                config.mtu as usize,
+                "client",
+                config.egress_target_mbps,
+                config.datagram_backlog_packets,
+                config.adaptive_egress,
+            );
+            let down = pump_quic_to_tun(&device, connection.clone(), "client");
 
-    let run_result = tokio::select! {
-        result = up => result,
-        result = down => result,
-        result = shutdown_signal() => {
-            match result {
-                Ok(()) => {
-                    info!("shutdown requested");
-                    Ok(())
-                }
-                Err(error) => Err(error),
+            tokio::select! {
+                result = up => result,
+                result = down => result,
+                result = shutdown_signal() => shutdown_result(result),
+            }
+        }
+        VpnTransportMode::Stream => {
+            let send_stream = connection
+                .open_uni()
+                .await
+                .context("failed to open client packet stream")?;
+            let recv_stream = connection
+                .accept_uni()
+                .await
+                .context("failed to accept server packet stream")?;
+            let up = pump_tun_to_stream(
+                &device,
+                send_stream,
+                connection.clone(),
+                config.mtu as usize,
+                "client",
+                config.egress_target_mbps,
+                config.adaptive_egress,
+            );
+            let down = pump_stream_to_tun(&device, recv_stream, config.mtu as usize + 64, "client");
+
+            tokio::select! {
+                result = up => result,
+                result = down => result,
+                result = shutdown_signal() => shutdown_result(result),
             }
         }
     };
@@ -239,6 +265,16 @@ async fn main() -> Result<()> {
     connection.close(0_u32.into(), b"client shutdown");
     endpoint.wait_idle().await;
     run_result
+}
+
+fn shutdown_result(result: Result<()>) -> Result<()> {
+    match result {
+        Ok(()) => {
+            info!("shutdown requested");
+            Ok(())
+        }
+        Err(error) => Err(error),
+    }
 }
 
 async fn connect_client(

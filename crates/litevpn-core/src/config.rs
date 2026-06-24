@@ -16,6 +16,14 @@ pub enum CongestionController {
     Bbr,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum VpnTransportMode {
+    #[default]
+    Datagram,
+    Stream,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ServerConfig {
@@ -38,6 +46,7 @@ pub struct ServerConfig {
     pub egress_target_mbps: u64,
     pub datagram_backlog_packets: u64,
     pub adaptive_egress: bool,
+    pub vpn_transport: VpnTransportMode,
 }
 
 impl Default for ServerConfig {
@@ -62,6 +71,7 @@ impl Default for ServerConfig {
             egress_target_mbps: 36,
             datagram_backlog_packets: DEFAULT_DATAGRAM_BACKLOG_PACKETS,
             adaptive_egress: true,
+            vpn_transport: VpnTransportMode::Datagram,
         }
     }
 }
@@ -103,6 +113,7 @@ pub struct ClientConfig {
     pub egress_target_mbps: u64,
     pub datagram_backlog_packets: u64,
     pub adaptive_egress: bool,
+    pub vpn_transport: VpnTransportMode,
 }
 
 impl Default for ClientConfig {
@@ -126,6 +137,7 @@ impl Default for ClientConfig {
             egress_target_mbps: 13,
             datagram_backlog_packets: DEFAULT_DATAGRAM_BACKLOG_PACKETS,
             adaptive_egress: false,
+            vpn_transport: VpnTransportMode::Datagram,
         }
     }
 }
