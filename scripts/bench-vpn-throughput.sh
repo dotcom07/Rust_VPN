@@ -29,6 +29,8 @@ Environment:
   LOG_DIR=bench-results/vpn-compare-.../wireguard
   SERVER_TUN_IP=10.77.0.1  # wireguard default
   SERVER_TUN_IP=10.66.0.1  # litevpn default
+  SERVER_TUN_IFACE=wg0     # wireguard default
+  SERVER_TUN_IFACE=tun0    # litevpn default
 HELP
   exit 0
 fi
@@ -36,9 +38,11 @@ fi
 case "$MODE" in
   wireguard)
     SERVER_TUN_IP="${SERVER_TUN_IP:-10.77.0.1}"
+    SERVER_TUN_IFACE="${SERVER_TUN_IFACE:-wg0}"
     ;;
   litevpn)
     SERVER_TUN_IP="${SERVER_TUN_IP:-10.66.0.1}"
+    SERVER_TUN_IFACE="${SERVER_TUN_IFACE:-tun0}"
     ;;
   *)
     echo "MODE must be wireguard or litevpn" >&2
@@ -75,9 +79,15 @@ remote() {
 
 cleanup() {
   remote "pkill iperf3 >/dev/null 2>&1 || true" >/dev/null 2>&1 || true
+  remote "sudo iptables -D INPUT -i '$SERVER_TUN_IFACE' -p tcp --dport '$IPERF_PORT' -m comment --comment litevpn-bench-iperf -j ACCEPT >/dev/null 2>&1 || true" >/dev/null 2>&1 || true
+}
+
+allow_iperf_over_tunnel() {
+  remote "sudo iptables -C INPUT -i '$SERVER_TUN_IFACE' -p tcp --dport '$IPERF_PORT' -m comment --comment litevpn-bench-iperf -j ACCEPT 2>/dev/null || sudo iptables -I INPUT 1 -i '$SERVER_TUN_IFACE' -p tcp --dport '$IPERF_PORT' -m comment --comment litevpn-bench-iperf -j ACCEPT"
 }
 
 start_iperf_server() {
+  allow_iperf_over_tunnel
   remote "pkill iperf3 >/dev/null 2>&1 || true; rm -f '$REMOTE_IPERF_LOG'; iperf3 -s -D -p '$IPERF_PORT' -1 --logfile '$REMOTE_IPERF_LOG'"
 
   local attempts=$((IPERF_READY_TIMEOUT_SECS * 5))
@@ -104,6 +114,7 @@ echo "== VPN throughput benchmark =="
 date '+%Y-%m-%dT%H:%M:%S%z'
 echo "mode=$MODE"
 echo "server_tunnel_ip=$SERVER_TUN_IP"
+echo "server_tunnel_iface=$SERVER_TUN_IFACE"
 echo "duration_secs=$DURATION parallel=$PARALLEL"
 echo "log_dir=$LOG_DIR"
 
