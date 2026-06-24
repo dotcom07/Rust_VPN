@@ -65,6 +65,13 @@ sudo ./target/release/litevpn-client --config config/client.toml
 
 Use `--no-routes` to test the tunnel without changing macOS routes.
 
+On macOS the client removes stale LiteVPN split-default routes before connecting. If a previous run
+was killed and the next probe/client run times out, clean them manually:
+
+```bash
+sudo ./target/release/litevpn-client --config config/client.toml --cleanup-routes
+```
+
 If the probe times out while the server service is active, open `443/udp` in the Oracle Cloud Security List or NSG for the instance subnet.
 
 ## Benchmarks

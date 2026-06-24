@@ -33,6 +33,9 @@ struct Args {
     no_routes: bool,
 
     #[arg(long)]
+    cleanup_routes: bool,
+
+    #[arg(long)]
     probe: bool,
 
     #[arg(long, default_value_t = 0)]
@@ -88,8 +91,24 @@ async fn main() -> Result<()> {
     let args = Args::parse();
     let config: ClientConfig = load_toml(&args.config)?;
     config.validate()?;
-    let token = load_token(&config.auth_token_path)?;
     let server_addr: SocketAddr = config.server.parse().context("invalid server address")?;
+
+    #[cfg(target_os = "macos")]
+    {
+        if args.cleanup_routes || (config.route_all && !args.no_routes) {
+            macos_routes::RouteGuard::cleanup_stale(server_addr)?;
+        }
+        if args.cleanup_routes {
+            return Ok(());
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    if args.cleanup_routes {
+        bail!("--cleanup-routes is currently implemented only on macOS");
+    }
+
+    let token = load_token(&config.auth_token_path)?;
     let bench_direction = args
         .bench
         .as_deref()

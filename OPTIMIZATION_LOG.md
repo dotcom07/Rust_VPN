@@ -123,6 +123,7 @@ Commands:
 | Stream download diagnostic | stream-download | 1300 | 36 target avg 35.68 Mbps; 50 target avg 39.87 Mbps | byte gap 0 for all targets | Stream download can burst higher but suffers retransmission/RTT variance; selected DATAGRAM download 36 remains the stable VPN-mode target |
 | Stream VPN mode prototype | mixed | 1300 | DATAGRAM selected sanity: download 35.80 Mbps local / 35.83 Mbps server; upload 13.02 Mbps local / 13.03 Mbps server | Stream-upload 20 Mbps: 20.04 Mbps local/server, byte gap 0 | Added optional `vpn_transport = "stream"` packet mode; full macOS TUN run not automated because noninteractive sudo required a password |
 | Transport switch automation | mixed | 1300 | download 36.03 Mbps, upload 13.04 Mbps | Server config now explicitly has `vpn_transport = "datagram"` | Added `scripts/set-vpn-transport.sh`; verified local config update, remote config update, restart, and selected DATAGRAM sanity |
+| macOS stale route pre-clean | connectivity | 1300 | probe OK to `161.33.36.181:443`; short selected bench: download `36.03 Mbps`, upload `13.03 Mbps` | bench loss/congestion 0 | Client now checks for stale split-default routes before connecting, removes them when present, and supports `--cleanup-routes`; this targets reconnect timeouts after abnormal client exit |
 | Paced MTU retest | download | 1350 | 37.82 Mbps | 47,548,350 bytes / 10s | 0 server loss, higher RTT |
 | Paced MTU retest | download | 1400 | 39.99 Mbps | 47,353,600 bytes / 10s | 0 server loss at 38 target, but edge-risk |
 | Paced MTU edge check | download | 1400 | failed | n/a | `datagram too large` at 45 Mbps target |
@@ -161,6 +162,7 @@ Commands:
 - Stream diagnostics show the same path can deliver exact bytes above the DATAGRAM upload limit when reliability is provided by QUIC streams. This points away from OCI firewall/NIC loss and toward DATAGRAM reliability/queueing tradeoffs.
 - Added experimental `vpn_transport = "stream"` mode using length-prefixed TUN packets over reliable QUIC unidirectional streams. Defaults remain `datagram`; stream mode needs an interactive macOS sudo/TUN smoke test before selection.
 - Added `scripts/set-vpn-transport.sh` to switch local and remote configs between `datagram` and `stream`, restart the server, and leave a timestamped remote config backup. Current server is explicitly restored to `datagram`.
+- Added pre-connect macOS route cleanup plus `--cleanup-routes` so stale split-default routes left by a crash or forced kill cannot trap the next QUIC connect attempt inside the old tunnel route.
 
 ## Next Candidates
 
