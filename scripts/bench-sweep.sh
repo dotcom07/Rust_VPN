@@ -61,7 +61,7 @@ SWEEP_DIR="$ROOT/$OUT_DIR/sweep-$DIRECTION-$STAMP"
 SUMMARY="$SWEEP_DIR/summary.csv"
 mkdir -p "$SWEEP_DIR"
 
-echo "direction,target_mbps,status,local_avg_mbps,server_avg_mbps,local_total_bytes,server_total_bytes,byte_gap,client_lost_packets,client_congestion_events,server_lost_packets,server_congestion_events,delivery_ok,log" > "$SUMMARY"
+echo "direction,target_mbps,status,local_avg_mbps,server_avg_mbps,local_total_bytes,server_total_bytes,byte_gap,client_lost_packets,client_congestion_events,server_lost_packets,server_congestion_events,delivery_ok,clean_ok,log" > "$SUMMARY"
 
 extract_field() {
   local line="$1"
@@ -69,9 +69,19 @@ extract_field() {
   printf '%s\n' "$line" | tr ' ,' '\n' | awk -F= -v key="$key" '$1 == key { print $2; exit }'
 }
 
-best_target=""
-best_mbps=""
+best_delivery_target=""
+best_delivery_mbps=""
+best_clean_target=""
+best_clean_mbps=""
 failures=0
+
+is_better_mbps() {
+  local candidate="$1"
+  local current="$2"
+
+  [[ -z "$current" ]] ||
+    awk -v candidate="$candidate" -v current="$current" 'BEGIN { exit !(candidate > current) }'
+}
 
 echo "== LiteVPN bench sweep =="
 date '+%Y-%m-%dT%H:%M:%S%z'
@@ -119,6 +129,7 @@ for target in $TARGETS; do
   byte_gap=""
   packet_gap=""
   delivery_ok=0
+  clean_ok=0
 
   if [[ -n "$local_aggregate" ]]; then
     local_avg_mbps="$(extract_field "$local_aggregate" "avg_mbps")"
@@ -189,8 +200,14 @@ for target in $TARGETS; do
 
   if [[ "$status" == "ok" ]]; then
     if [[ "$DIRECTION" == stream-* ]]; then
-      if [[ "$local_total_bytes" == "$total_bytes" ]]; then
+      if [[ -n "$local_total_bytes" && -n "$total_bytes" && "$local_total_bytes" == "$total_bytes" ]]; then
         delivery_ok=1
+        if [[ "$client_lost_packets" == "0" \
+          && "$client_congestion_events" == "0" \
+          && "${lost_packets:-}" == "0" \
+          && "${congestion_events:-}" == "0" ]]; then
+          clean_ok=1
+        fi
       fi
     elif [[ "${lost_packets:-}" == "0" \
       && "${congestion_events:-}" == "0" \
@@ -199,22 +216,28 @@ for target in $TARGETS; do
       if [[ "$DIRECTION" == "upload" ]]; then
         if [[ "$local_total_bytes" == "$total_bytes" && "$local_total_packets" == "$total_packets" ]]; then
           delivery_ok=1
+          clean_ok=1
         fi
       elif [[ -z "$packet_gap" || "$packet_gap" -le 4 ]]; then
         delivery_ok=1
+        clean_ok=1
       fi
     fi
   fi
 
-  echo "$DIRECTION,$target,$status,$local_avg_mbps,$avg_mbps,$local_total_bytes,$total_bytes,$byte_gap,$client_lost_packets,$client_congestion_events,$lost_packets,$congestion_events,$delivery_ok,$log" >> "$SUMMARY"
+  echo "$DIRECTION,$target,$status,$local_avg_mbps,$avg_mbps,$local_total_bytes,$total_bytes,$byte_gap,$client_lost_packets,$client_congestion_events,$lost_packets,$congestion_events,$delivery_ok,$clean_ok,$log" >> "$SUMMARY"
 
   if [[ "$delivery_ok" == "1" ]]; then
-    if [[ -n "$avg_mbps" ]] && {
-      [[ -z "$best_mbps" ]] ||
-        awk -v candidate="$avg_mbps" -v best="$best_mbps" 'BEGIN { exit !(candidate > best) }'
-    }; then
-      best_target="$target"
-      best_mbps="$avg_mbps"
+    if [[ -n "$avg_mbps" ]] && is_better_mbps "$avg_mbps" "$best_delivery_mbps"; then
+      best_delivery_target="$target"
+      best_delivery_mbps="$avg_mbps"
+    fi
+  fi
+
+  if [[ "$clean_ok" == "1" ]]; then
+    if [[ -n "$avg_mbps" ]] && is_better_mbps "$avg_mbps" "$best_clean_mbps"; then
+      best_clean_target="$target"
+      best_clean_mbps="$avg_mbps"
     fi
   fi
 done
@@ -223,14 +246,24 @@ echo
 echo "== sweep summary =="
 cat "$SUMMARY"
 
-if [[ -n "$best_target" ]]; then
+if [[ -n "$best_clean_target" ]]; then
   echo
-  echo "selected_delivery_ok_target_mbps=$best_target"
-  echo "selected_delivery_ok_server_avg_mbps=$best_mbps"
+  echo "selected_clean_target_mbps=$best_clean_target"
+  echo "selected_clean_server_avg_mbps=$best_clean_mbps"
+else
+  echo
+  echo "selected_clean_target_mbps="
+  echo "no clean target found"
+fi
+
+if [[ -n "$best_delivery_target" ]]; then
+  echo
+  echo "selected_delivery_ok_target_mbps=$best_delivery_target"
+  echo "selected_delivery_ok_server_avg_mbps=$best_delivery_mbps"
 else
   echo
   echo "selected_delivery_ok_target_mbps="
-  echo "no delivery-ok target found" >&2
+  echo "no delivery-ok target found"
 fi
 
 if [[ "$failures" -gt 0 ]]; then
