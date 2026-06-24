@@ -91,3 +91,10 @@ HOST=ubuntu@YOUR_SERVER_IP KEY=~/.ssh/your_oci_key scripts/bench-selected.sh
 ```
 
 Logs are written under `bench-results/`, which is intentionally ignored by git.
+
+Target sweep for comparing candidate pacing limits:
+
+```bash
+DIRECTION=download TARGETS="30 34 38 40" scripts/bench-sweep.sh
+DIRECTION=upload TARGETS="10 12 13" scripts/bench-sweep.sh
+```

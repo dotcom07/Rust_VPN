@@ -138,6 +138,7 @@ Commands:
 - Added `measured_elapsed_ms` to server benchmark summaries so upload server Mbps excludes the extra drain window.
 - Added `scripts/bench-selected.sh` to run the selected download/upload benchmarks with before/after server snapshots and local log capture.
 - Made benchmark DATAGRAM backlog waits deadline-aware so a congested download run still exits and reports a summary instead of hanging until the client times out.
+- Added `scripts/bench-sweep.sh` to automate target sweeps and record parsed aggregate results in CSV, selecting the highest zero-loss target from a run.
 
 ## Next Candidates
 
