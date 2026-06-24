@@ -209,6 +209,7 @@ async fn main() -> Result<()> {
         config.mtu as usize,
         "client",
         config.egress_target_mbps,
+        config.datagram_backlog_packets,
     );
     let down = pump_quic_to_tun(&device, connection.clone(), "client");
 
@@ -359,6 +360,7 @@ async fn run_bench_iterations(
             duration_secs,
             payload_bytes,
             target_mbps,
+            config.datagram_backlog_packets,
         )
         .await;
         connection.close(0_u32.into(), b"bench complete");
@@ -380,6 +382,7 @@ async fn run_bench(
     duration_secs: u64,
     payload_bytes: usize,
     target_mbps: Option<u64>,
+    datagram_backlog_packets: u64,
 ) -> Result<BenchMeasurement> {
     if duration_secs == 0 {
         bail!("bench duration must be greater than zero");
@@ -387,7 +390,14 @@ async fn run_bench(
 
     match direction {
         BenchDirection::Upload => {
-            run_upload_bench(connection, duration_secs, payload_bytes, target_mbps).await
+            run_upload_bench(
+                connection,
+                duration_secs,
+                payload_bytes,
+                target_mbps,
+                datagram_backlog_packets,
+            )
+            .await
         }
         BenchDirection::Download => {
             run_download_bench(connection, duration_secs, payload_bytes, target_mbps).await
@@ -400,6 +410,7 @@ async fn run_upload_bench(
     duration_secs: u64,
     payload_bytes: usize,
     target_mbps: Option<u64>,
+    datagram_backlog_packets: u64,
 ) -> Result<BenchMeasurement> {
     let payload = Bytes::from(vec![0_u8; payload_bytes]);
     let started = Instant::now();
@@ -408,7 +419,7 @@ async fn run_upload_bench(
     let mut bytes = 0_u64;
     let target_bytes_per_sec = target_bytes_per_sec(target_mbps);
     let burst_bytes = target_burst_bytes(target_bytes_per_sec, payload_bytes);
-    let mut datagram_backlog = DatagramBacklog::new(connection);
+    let mut datagram_backlog = DatagramBacklog::new(connection, datagram_backlog_packets);
     let deadline_timer = sleep_until(deadline);
     tokio::pin!(deadline_timer);
 

@@ -92,6 +92,10 @@ Commands:
 | Datagram backlog cap | upload | 1300 | 12.22 Mbps local / 10.86 Mbps server | 36,678,200 local bytes / 36,641,800 server bytes | 14 Mbps target still had low runs |
 | Datagram backlog cap | download | 1300 | 37.89 Mbps local / 37.97 Mbps server | 113,991,800 local bytes / 114,146,500 server bytes | 38 Mbps target still hit loss under RTT spike |
 | Datagram backlog cap | download | 1300 | 35.02 Mbps local / 35.04 Mbps server | 105,131,000 local bytes / 105,131,000 server bytes | 3 runs, server loss 0, congestion 0; selected for stability |
+| Backlog value smoke | upload | 1300 | 13.02 Mbps local / 10.86 Mbps server | 16,285,100 local bytes / 16,285,100 server bytes | backlog 32, 2 runs, loss 0 |
+| Backlog value smoke | upload | 1300 | 13.02 Mbps local / 10.86 Mbps server | 16,285,100 local bytes / 16,282,500 server bytes | backlog 128, 2 runs, loss 0 |
+| Backlog value smoke | download | 1300 | 35.13 Mbps local / 35.07 Mbps server | 43,834,700 local bytes / 43,838,600 server bytes | backlog 32, 2 runs, loss 0 |
+| Backlog value smoke | download | 1300 | 35.02 Mbps local / 35.06 Mbps server | 43,834,700 local bytes / 43,841,200 server bytes | backlog 128, 2 runs, loss 0 |
 | Paced MTU retest | download | 1350 | 37.82 Mbps | 47,548,350 bytes / 10s | 0 server loss, higher RTT |
 | Paced MTU retest | download | 1400 | 39.99 Mbps | 47,353,600 bytes / 10s | 0 server loss at 38 target, but edge-risk |
 | Paced MTU edge check | download | 1400 | failed | n/a | `datagram too large` at 45 Mbps target |
@@ -116,6 +120,7 @@ Commands:
 - Added `--bench-runs` and parsed server-side aggregate stats so repeated tests compare local queued throughput against server-observed delivery/loss.
 - Re-swept paced targets with repeated runs. Lowered upload to `13 Mbps` because `14` and `15 Mbps` showed worse worst-run stability.
 - Added a QUIC DATAGRAM backlog cap using `frame_tx_datagram` stats. This fixed the upload local/server delivery gap at 13 Mbps. After retesting under RTT spikes, selected download `35 Mbps` for zero-loss stability.
+- Made DATAGRAM backlog cap configurable as `datagram_backlog_packets`; selected default remains `64` because 32/64/128 all worked at the selected 35/13 Mbps targets.
 - OCI networking was left unchanged because UDP `443` is reachable; the observed drops correlate with pacing/RTT rather than Security List or NSG blocking.
 
 ## Next Candidates

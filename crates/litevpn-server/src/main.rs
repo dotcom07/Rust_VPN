@@ -106,6 +106,7 @@ async fn main() -> Result<()> {
         let next_client_id = Arc::clone(&next_client_id);
         let mtu = config.mtu as usize;
         let egress_target_mbps = config.egress_target_mbps;
+        let datagram_backlog_packets = config.datagram_backlog_packets;
 
         tokio::spawn(async move {
             let mut client_id = None;
@@ -115,6 +116,7 @@ async fn main() -> Result<()> {
                 token,
                 mtu,
                 egress_target_mbps,
+                datagram_backlog_packets,
                 active.clone(),
                 next_client_id,
                 &mut client_id,
@@ -145,6 +147,7 @@ async fn handle_connection(
     token: String,
     mtu: usize,
     egress_target_mbps: u64,
+    datagram_backlog_packets: u64,
     active: Arc<Mutex<Option<ActiveClient>>>,
     next_client_id: Arc<AtomicU64>,
     client_id: &mut Option<u64>,
@@ -173,6 +176,7 @@ async fn handle_connection(
             duration_secs,
             payload_bytes,
             target_mbps,
+            datagram_backlog_packets,
         )
         .await;
     }
@@ -205,6 +209,7 @@ async fn handle_connection(
         mtu,
         "server",
         egress_target_mbps,
+        datagram_backlog_packets,
     );
     let down = pump_quic_to_tun(&device, connection.clone(), "server");
 
@@ -223,13 +228,21 @@ async fn run_bench(
     duration_secs: u64,
     payload_bytes: usize,
     target_mbps: Option<u64>,
+    datagram_backlog_packets: u64,
 ) -> Result<()> {
     match direction {
         BenchDirection::Upload => {
             run_upload_bench(connection, duration_secs, payload_bytes, target_mbps).await
         }
         BenchDirection::Download => {
-            run_download_bench(connection, duration_secs, payload_bytes, target_mbps).await
+            run_download_bench(
+                connection,
+                duration_secs,
+                payload_bytes,
+                target_mbps,
+                datagram_backlog_packets,
+            )
+            .await
         }
     }
 }
@@ -280,6 +293,7 @@ async fn run_download_bench(
     duration_secs: u64,
     payload_bytes: usize,
     target_mbps: Option<u64>,
+    datagram_backlog_packets: u64,
 ) -> Result<()> {
     let requested_payload_bytes = payload_bytes;
     let payload_bytes = connection
@@ -300,7 +314,7 @@ async fn run_download_bench(
     let mut bytes = 0_u64;
     let target_bytes_per_sec = target_bytes_per_sec(target_mbps);
     let burst_bytes = target_burst_bytes(target_bytes_per_sec, payload_bytes);
-    let mut datagram_backlog = DatagramBacklog::new(&connection);
+    let mut datagram_backlog = DatagramBacklog::new(&connection, datagram_backlog_packets);
     let deadline_timer = sleep_until(deadline);
     tokio::pin!(deadline_timer);
 

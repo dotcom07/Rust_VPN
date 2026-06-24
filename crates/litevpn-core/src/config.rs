@@ -3,7 +3,10 @@ use std::{fs, net::Ipv4Addr, path::Path, path::PathBuf};
 use anyhow::{Context, Result, anyhow, bail};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use crate::{DEFAULT_DATAGRAM_BUFFER_BYTES, DEFAULT_MTU, DEFAULT_UDP_SOCKET_BUFFER_BYTES, MAX_MTU};
+use crate::{
+    DEFAULT_DATAGRAM_BACKLOG_PACKETS, DEFAULT_DATAGRAM_BUFFER_BYTES, DEFAULT_MTU,
+    DEFAULT_UDP_SOCKET_BUFFER_BYTES, MAX_MTU,
+};
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -33,6 +36,7 @@ pub struct ServerConfig {
     pub udp_recv_buffer_bytes: usize,
     pub udp_send_buffer_bytes: usize,
     pub egress_target_mbps: u64,
+    pub datagram_backlog_packets: u64,
 }
 
 impl Default for ServerConfig {
@@ -55,6 +59,7 @@ impl Default for ServerConfig {
             udp_recv_buffer_bytes: DEFAULT_UDP_SOCKET_BUFFER_BYTES,
             udp_send_buffer_bytes: DEFAULT_UDP_SOCKET_BUFFER_BYTES,
             egress_target_mbps: 35,
+            datagram_backlog_packets: DEFAULT_DATAGRAM_BACKLOG_PACKETS,
         }
     }
 }
@@ -64,6 +69,7 @@ impl ServerConfig {
         validate_common(self.mtu, self.tun_prefix, self.datagram_buffer_bytes)?;
         validate_udp_socket_buffers(self.udp_recv_buffer_bytes, self.udp_send_buffer_bytes)?;
         validate_egress_target(self.egress_target_mbps)?;
+        validate_datagram_backlog(self.datagram_backlog_packets)?;
         if self.tun_name.trim().is_empty() {
             bail!("server tun_name must not be empty");
         }
@@ -93,6 +99,7 @@ pub struct ClientConfig {
     pub udp_recv_buffer_bytes: usize,
     pub udp_send_buffer_bytes: usize,
     pub egress_target_mbps: u64,
+    pub datagram_backlog_packets: u64,
 }
 
 impl Default for ClientConfig {
@@ -114,6 +121,7 @@ impl Default for ClientConfig {
             udp_recv_buffer_bytes: DEFAULT_UDP_SOCKET_BUFFER_BYTES,
             udp_send_buffer_bytes: DEFAULT_UDP_SOCKET_BUFFER_BYTES,
             egress_target_mbps: 13,
+            datagram_backlog_packets: DEFAULT_DATAGRAM_BACKLOG_PACKETS,
         }
     }
 }
@@ -123,6 +131,7 @@ impl ClientConfig {
         validate_common(self.mtu, self.tun_prefix, self.datagram_buffer_bytes)?;
         validate_udp_socket_buffers(self.udp_recv_buffer_bytes, self.udp_send_buffer_bytes)?;
         validate_egress_target(self.egress_target_mbps)?;
+        validate_datagram_backlog(self.datagram_backlog_packets)?;
         if self.server.trim().is_empty() {
             bail!("server must not be empty");
         }
@@ -165,6 +174,13 @@ pub fn validate_udp_socket_buffers(
 pub fn validate_egress_target(egress_target_mbps: u64) -> Result<()> {
     if egress_target_mbps > 10_000 {
         bail!("egress_target_mbps must be <= 10000");
+    }
+    Ok(())
+}
+
+pub fn validate_datagram_backlog(datagram_backlog_packets: u64) -> Result<()> {
+    if datagram_backlog_packets > 100_000 {
+        bail!("datagram_backlog_packets must be <= 100000");
     }
     Ok(())
 }

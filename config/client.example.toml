@@ -14,3 +14,4 @@ congestion_controller = "cubic"
 udp_recv_buffer_bytes = 0
 udp_send_buffer_bytes = 0
 egress_target_mbps = 13
+datagram_backlog_packets = 64

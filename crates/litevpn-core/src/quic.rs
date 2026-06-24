@@ -8,8 +8,6 @@ use tokio::time::{Duration, Instant, sleep, sleep_until};
 use tracing::{debug, trace};
 use tun_rs::AsyncDevice;
 
-pub const DEFAULT_DATAGRAM_BACKLOG_PACKETS: u64 = 64;
-
 pub struct DatagramBacklog {
     baseline_tx_datagrams: u64,
     queued_datagrams: u64,
@@ -17,11 +15,11 @@ pub struct DatagramBacklog {
 }
 
 impl DatagramBacklog {
-    pub fn new(connection: &Connection) -> Self {
+    pub fn new(connection: &Connection, max_backlog_packets: u64) -> Self {
         Self {
             baseline_tx_datagrams: connection.stats().frame_tx.datagram,
             queued_datagrams: 0,
-            max_backlog_packets: DEFAULT_DATAGRAM_BACKLOG_PACKETS,
+            max_backlog_packets,
         }
     }
 
@@ -31,6 +29,10 @@ impl DatagramBacklog {
     }
 
     async fn wait(&self, connection: &Connection) -> Result<()> {
+        if self.max_backlog_packets == 0 {
+            return Ok(());
+        }
+
         loop {
             let transmitted = connection
                 .stats()
@@ -118,13 +120,14 @@ pub async fn pump_tun_to_quic(
     mtu: usize,
     label: &'static str,
     egress_target_mbps: u64,
+    datagram_backlog_packets: u64,
 ) -> Result<()> {
     let mut buf = vec![0_u8; mtu + 64];
     let started = Instant::now();
     let mut bytes = 0_u64;
     let target_bytes_per_sec = target_bytes_per_sec(egress_target_mbps);
     let burst_bytes = target_burst_bytes(target_bytes_per_sec, mtu);
-    let mut datagram_backlog = DatagramBacklog::new(&connection);
+    let mut datagram_backlog = DatagramBacklog::new(&connection, datagram_backlog_packets);
     loop {
         let n = tokio::select! {
             result = device.recv(&mut buf) => result?,

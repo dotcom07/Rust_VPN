@@ -75,3 +75,5 @@ If the probe times out while the server service is active, open `443/udp` in the
 ```
 
 Repeated benchmark output includes local send/receive aggregate stats and parsed server-side aggregate stats.
+
+`datagram_backlog_packets` caps queued QUIC DATAGRAMs that have not reached Quinn's transmit stats yet. `64` is the selected default for this path; `0` disables the cap.
