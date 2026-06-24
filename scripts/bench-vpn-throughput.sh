@@ -6,8 +6,10 @@ HOST="${HOST:-ubuntu@161.33.36.181}"
 KEY="${KEY:-/Users/sungje/.ssh/oracle_oci_ed25519}"
 DURATION="${DURATION:-10}"
 PARALLEL="${PARALLEL:-1}"
+IPERF_PORT="${IPERF_PORT:-5201}"
+IPERF_READY_TIMEOUT_SECS="${IPERF_READY_TIMEOUT_SECS:-5}"
 LOG_DIR="${LOG_DIR:-}"
-IPERF_SERVER_PID=""
+REMOTE_IPERF_LOG="/tmp/litevpn-iperf3-$MODE.log"
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   cat <<'HELP'
@@ -22,6 +24,8 @@ tunnel IP.
 Environment:
   DURATION=10
   PARALLEL=1
+  IPERF_PORT=5201
+  IPERF_READY_TIMEOUT_SECS=5
   LOG_DIR=bench-results/vpn-compare-.../wireguard
   SERVER_TUN_IP=10.77.0.1  # wireguard default
   SERVER_TUN_IP=10.66.0.1  # litevpn default
@@ -71,21 +75,27 @@ remote() {
 
 cleanup() {
   remote "pkill iperf3 >/dev/null 2>&1 || true" >/dev/null 2>&1 || true
-  if [[ -n "$IPERF_SERVER_PID" ]]; then
-    wait "$IPERF_SERVER_PID" >/dev/null 2>&1 || true
-    IPERF_SERVER_PID=""
-  fi
 }
 
 start_iperf_server() {
-  remote "pkill iperf3 >/dev/null 2>&1 || true; iperf3 -s -B '$SERVER_TUN_IP' -1" &
-  IPERF_SERVER_PID=$!
-  sleep 1
+  remote "pkill iperf3 >/dev/null 2>&1 || true; rm -f '$REMOTE_IPERF_LOG'; nohup iperf3 -s -B '$SERVER_TUN_IP' -p '$IPERF_PORT' -1 >'$REMOTE_IPERF_LOG' 2>&1 &"
+
+  local attempts=$((IPERF_READY_TIMEOUT_SECS * 5))
+  while [[ "$attempts" -gt 0 ]]; do
+    if remote "ss -ltn sport = :$IPERF_PORT | grep -q ':$IPERF_PORT'"; then
+      return
+    fi
+    attempts=$((attempts - 1))
+    sleep 0.2
+  done
+
+  echo "remote iperf3 server did not become ready after ${IPERF_READY_TIMEOUT_SECS}s" >&2
+  remote "cat '$REMOTE_IPERF_LOG' 2>/dev/null || true" >&2 || true
+  return 1
 }
 
 finish_iperf_server() {
-  wait "$IPERF_SERVER_PID" || true
-  IPERF_SERVER_PID=""
+  remote "pkill iperf3 >/dev/null 2>&1 || true" >/dev/null 2>&1 || true
 }
 
 trap cleanup EXIT INT TERM
@@ -124,7 +134,7 @@ json_field_mbps() {
 echo
 echo "== upload: client -> server =="
 start_iperf_server
-iperf3 -c "$SERVER_TUN_IP" -t "$DURATION" -P "$PARALLEL" --json > "$UPLOAD_JSON"
+iperf3 -c "$SERVER_TUN_IP" -p "$IPERF_PORT" -t "$DURATION" -P "$PARALLEL" --json > "$UPLOAD_JSON"
 finish_iperf_server
 upload_sender_mbps="$(json_field_mbps "$UPLOAD_JSON" '.end.sum_sent.bits_per_second')"
 upload_receiver_mbps="$(json_field_mbps "$UPLOAD_JSON" '.end.sum_received.bits_per_second')"
@@ -133,7 +143,7 @@ echo "upload sender_mbps=$upload_sender_mbps receiver_mbps=$upload_receiver_mbps
 echo
 echo "== download: server -> client =="
 start_iperf_server
-iperf3 -c "$SERVER_TUN_IP" -t "$DURATION" -P "$PARALLEL" -R --json > "$DOWNLOAD_JSON"
+iperf3 -c "$SERVER_TUN_IP" -p "$IPERF_PORT" -t "$DURATION" -P "$PARALLEL" -R --json > "$DOWNLOAD_JSON"
 finish_iperf_server
 download_sender_mbps="$(json_field_mbps "$DOWNLOAD_JSON" '.end.sum_sent.bits_per_second')"
 download_receiver_mbps="$(json_field_mbps "$DOWNLOAD_JSON" '.end.sum_received.bits_per_second')"

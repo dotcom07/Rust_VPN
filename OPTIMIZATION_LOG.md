@@ -189,6 +189,7 @@ Commands:
 - Added `scripts/summarize-vpn-comparison.sh` to turn `summary.csv` plus optional Fast.com notes into `comparison.md` with a clear recommendation score.
 - Added `scripts/sweep-wireguard-mtu.sh` to reinstall WireGuard with MTU candidates, run WireGuard-only comparisons, summarize each run, and recommend the best WireGuard MTU baseline.
 - Added client `--connect-retries` and `--connect-retry-delay-ms`; the LiteVPN run/benchmark wrappers now default to three connect attempts to reduce transient timeout failures.
+- Fixed `scripts/bench-vpn-throughput.sh` to start remote `iperf3` detached and wait for the TCP listener before running the client, avoiding empty comparison summaries from startup races.
 
 ## Next Candidates
 
