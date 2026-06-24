@@ -116,6 +116,9 @@ Commands:
 | Adaptive egress selected | mixed | 1300 | download 36.01 Mbps local / 36.03 Mbps server; upload 13.01 Mbps local / 12.99 Mbps server | 135,141,500 download server bytes, 48,699,300 upload server bytes | Server-only adaptive 36/13, 10s x3; server loss/congestion 0; selected |
 | Upload edge resweep | upload | 1300 | 14.01 Mbps local / 14.01 Mbps server | 52,555,100 local bytes / 52,555,100 server bytes | 14 Mbps once passed 10s x3 with zero loss, but immediate resweep under RTT spikes showed client loss and delivery gaps; not selected |
 | Sweep selection fix | upload | 1300 | 16.01 Mbps local / 16.01 Mbps server | 60,069,100 local bytes / 60,023,600 server bytes | Old sweep logic would have selected 16 Mbps from server aggregate alone; new CSV records client loss/congestion and delivery gap, so 14/15/16 were rejected |
+| Client adaptive rejection | upload | 1300 | 12 Mbps target: 9.37 Mbps local / 9.36 Mbps server; 13 Mbps target: 11.27 Mbps local / 11.26 Mbps server | 35,142,900 local bytes / 35,092,200 server bytes at 12 Mbps target | Existing client-side adaptive over-throttled under loss and still had delivery gaps; keep client adaptive disabled |
+| Low-rate adaptive prototype | upload | 1300 | 12 Mbps target: 12.01 Mbps local / 12.00 Mbps server; 13 Mbps target: 12.62 Mbps local / 12.57 Mbps server | 45,047,600 local bytes / 44,999,500 server bytes at 12 Mbps target | Gentler low-rate adaptive avoided over-throttling but still failed delivery gap/client-loss checks; code reverted |
+| Low-target upload check | upload | 1300 | 9.01 Mbps local / 9.00 Mbps server; 12.01 Mbps local / 11.95 Mbps server | 33,787,000 local bytes / 33,761,000 server bytes at 9 Mbps target | Even 9-12 Mbps static targets showed client loss or delivery gaps during RTT spikes; target selection alone is insufficient |
 | Paced MTU retest | download | 1350 | 37.82 Mbps | 47,548,350 bytes / 10s | 0 server loss, higher RTT |
 | Paced MTU retest | download | 1400 | 39.99 Mbps | 47,353,600 bytes / 10s | 0 server loss at 38 target, but edge-risk |
 | Paced MTU edge check | download | 1400 | failed | n/a | `datagram too large` at 45 Mbps target |
@@ -149,9 +152,11 @@ Commands:
 - Added `scripts/bench-sweep.sh` to automate target sweeps and record parsed aggregate results in CSV, selecting the highest zero-loss target from a run.
 - Tightened `scripts/bench-sweep.sh` selection to include local aggregate bytes, delivery gaps, and client-side QUIC loss/congestion. Server-only aggregates can hide DATAGRAM payload loss in the upload direction.
 - Added `adaptive_egress` pacing. Server-only adaptive pacing allowed the selected download target to rise from 34 Mbps to 36 Mbps while keeping upload static at 13 Mbps; client-side adaptive was rejected because it over-throttled upload.
+- Retested client-side adaptive after tightening delivery checks. A gentler low-rate adaptive prototype improved average send rate but still failed delivery-gap checks, so it was reverted.
 
 ## Next Candidates
 
 - Run a sudo TUN-mode browser/fast.com smoke test from macOS when an interactive password is available.
 - Inspect QUIC ACK/MTU discovery settings that directly affect DATAGRAM behavior under loss.
 - Compare against kernel WireGuard on the same OCI instance as the theoretical performance target.
+- Prototype a reliable QUIC stream benchmark as a diagnostic only, to separate raw path loss from DATAGRAM-specific delivery loss before considering any stream-based VPN mode.
