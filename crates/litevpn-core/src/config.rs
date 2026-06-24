@@ -58,7 +58,7 @@ impl Default for ServerConfig {
             congestion_controller: CongestionController::Cubic,
             udp_recv_buffer_bytes: DEFAULT_UDP_SOCKET_BUFFER_BYTES,
             udp_send_buffer_bytes: DEFAULT_UDP_SOCKET_BUFFER_BYTES,
-            egress_target_mbps: 35,
+            egress_target_mbps: 34,
             datagram_backlog_packets: DEFAULT_DATAGRAM_BACKLOG_PACKETS,
         }
     }
@@ -117,7 +117,7 @@ impl Default for ClientConfig {
             route_all: true,
             dns: vec!["1.1.1.1".to_string(), "8.8.8.8".to_string()],
             datagram_buffer_bytes: DEFAULT_DATAGRAM_BUFFER_BYTES,
-            congestion_controller: CongestionController::Cubic,
+            congestion_controller: CongestionController::Bbr,
             udp_recv_buffer_bytes: DEFAULT_UDP_SOCKET_BUFFER_BYTES,
             udp_send_buffer_bytes: DEFAULT_UDP_SOCKET_BUFFER_BYTES,
             egress_target_mbps: 13,

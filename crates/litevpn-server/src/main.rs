@@ -326,7 +326,9 @@ async fn run_download_bench(
             }
             result = connection.send_datagram_wait(payload.clone()) => {
                 result?;
-                datagram_backlog.queued(&connection).await?;
+                if !datagram_backlog.queued_until(&connection, deadline).await? {
+                    break;
+                }
                 packets += 1;
                 bytes += payload_bytes as u64;
                 pace_to_target(started, bytes, target_bytes_per_sec, burst_bytes).await;

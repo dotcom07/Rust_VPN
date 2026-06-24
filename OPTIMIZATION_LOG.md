@@ -9,10 +9,11 @@ Server: `ubuntu@161.33.36.181`, OCI Osaka, `VM.Standard.E2.1.Micro`
 - QUIC initial MTU: `min(tun_mtu + 160, 1452)`
 - Benchmark payload: auto, capped by `connection.max_datagram_size()` and config MTU
 - Server kernel buffers: `rmem/wmem_max=16777216`, `rmem/wmem_default=1048576`, `netdev_max_backlog=4096`
-- Congestion controller: `cubic`
+- Server congestion controller: `cubic`
 - Explicit UDP socket buffers: disabled (`0`, OS default)
-- Stable benchmark targets on current path: download `35 Mbps`, upload `13 Mbps`
-- VPN egress pacing: server `35 Mbps`, client `13 Mbps` on this deployment
+- Stable benchmark targets on current path: download `34 Mbps`, upload `13 Mbps`
+- VPN egress pacing: server `34 Mbps`, client `13 Mbps` on this deployment
+- Congestion controller: server `cubic`, client `bbr`
 - Server deployment: local Rust build, replace only `/usr/local/bin/litevpn-server`
 
 ## Why 1300 Is Selected
@@ -98,6 +99,9 @@ Commands:
 | Backlog value smoke | download | 1300 | 35.02 Mbps local / 35.06 Mbps server | 43,834,700 local bytes / 43,841,200 server bytes | backlog 128, 2 runs, loss 0 |
 | Server counter check | mixed | 1300 | download 35.08 Mbps local / 35.07 Mbps server; upload 12.86 Mbps local / 10.66 Mbps server | UDP error counters unchanged | Concurrent selected-target stress; NIC drops/errors stayed 0 |
 | Measured elapsed summary | upload | 1300 | 13.02 Mbps local / 13.03 Mbps server | 16,283,800 local bytes / 16,283,800 server bytes | Server summary now separates `elapsed_ms` from `measured_elapsed_ms` |
+| Selected harness check | mixed | 1300 | download 35.03 Mbps local / 35.06 Mbps server; upload 12.35 Mbps local / 12.35 Mbps server | UDP error counters unchanged | `scripts/bench-selected.sh`, 5s x2; no summary timeout after deadline-aware backlog fix |
+| Upload reselection | upload | 1300 | 12.02 Mbps local / 12.03 Mbps server | 22,548,500 bytes / 15s | 3 runs, server/client loss 0, congestion 0; CUBIC-only comparison |
+| Client BBR reselection | mixed | 1300 | download 34.03 Mbps local / 34.06 Mbps server; upload 13.02 Mbps local / 13.02 Mbps server | 42,588,000 download server bytes, 16,269,500 upload server bytes | 5s x2 after redeploy; server loss/congestion 0 in both directions; selected |
 | Paced MTU retest | download | 1350 | 37.82 Mbps | 47,548,350 bytes / 10s | 0 server loss, higher RTT |
 | Paced MTU retest | download | 1400 | 39.99 Mbps | 47,353,600 bytes / 10s | 0 server loss at 38 target, but edge-risk |
 | Paced MTU edge check | download | 1400 | failed | n/a | `datagram too large` at 45 Mbps target |
@@ -111,25 +115,26 @@ Commands:
 - Raised QUIC transport initial MTU headroom while keeping the selected TUN MTU conservative.
 - Added datagram capacity checks before entering VPN mode to avoid silent oversized TUN packet drops.
 - Raised Linux UDP/socket buffer ceilings and defaults in `server-prepare.sh`.
-- Added configurable Quinn congestion control and tested BBR; kept Cubic for this path.
+- Added configurable Quinn congestion control. Early BBR overran before pacing/backlog, but after those fixes the selected path is server Cubic and client BBR.
 - Added explicit UDP socket buffer controls and tested 4MiB; kept OS default because throughput regressed.
 - Added Quinn connection stats to benchmark output. The latest low-throughput runs showed path RTT and loss spikes, not just local CPU pressure.
-- Added `--bench-target-mbps` pacing. Per-packet sleep was too coarse on macOS, so pacing uses a 10ms burst budget. Current stable benchmark targets are about 35 Mbps down and 13 Mbps up.
-- Added optional VPN-mode TUN-to-QUIC egress pacing. The selected defaults are server `35 Mbps` and client `13 Mbps`; set `egress_target_mbps = 0` to disable.
+- Added `--bench-target-mbps` pacing. Per-packet sleep was too coarse on macOS, so pacing uses a 10ms burst budget. Current stable benchmark targets are about 34 Mbps down and 13 Mbps up.
+- Added optional VPN-mode TUN-to-QUIC egress pacing. The selected defaults are server `34 Mbps` and client `13 Mbps`; set `egress_target_mbps = 0` to disable.
 - Retested larger MTUs under pacing. Selected `1300`; `1400` is too close to the edge.
 - Made macOS route installation idempotent by deleting stale LiteVPN split-default routes before install and rolling back partial installs on failure.
 - Ensured client VPN mode still runs macOS route cleanup, QUIC close, and endpoint drain when either packet pump exits with an error.
 - Added `--bench-runs` and parsed server-side aggregate stats so repeated tests compare local queued throughput against server-observed delivery/loss.
-- Re-swept paced targets with repeated runs. Lowered upload to `13 Mbps` because `14` and `15 Mbps` showed worse worst-run stability.
-- Added a QUIC DATAGRAM backlog cap using `frame_tx_datagram` stats. This fixed the upload local/server delivery gap at 13 Mbps. After retesting under RTT spikes, selected download `35 Mbps` for zero-loss stability.
-- Made DATAGRAM backlog cap configurable as `datagram_backlog_packets`; selected default remains `64` because 32/64/128 all worked at the selected 35/13 Mbps targets.
+- Re-swept paced targets with repeated runs. Client-side BBR with pacing restored upload stability at `13 Mbps`; server remains on Cubic because download is stable there.
+- Added a QUIC DATAGRAM backlog cap using `frame_tx_datagram` stats. This fixed the upload local/server delivery gap at 13 Mbps. After retesting under RTT spikes, the selected download target was lowered to `34 Mbps` for zero-loss stability.
+- Made DATAGRAM backlog cap configurable as `datagram_backlog_packets`; selected default remains `64` because 32/64/128 worked around the selected targets.
 - OCI networking was left unchanged because UDP `443` is reachable; the observed drops correlate with pacing/RTT rather than Security List or NSG blocking.
 - Added `scripts/server-snapshot.sh` for service, CPU, UDP, NIC, and sysctl snapshots. Current selected-target stress did not increase `UdpRcvbufErrors`, `UdpSndbufErrors`, or NIC drops/errors.
 - Added `measured_elapsed_ms` to server benchmark summaries so upload server Mbps excludes the extra drain window.
+- Added `scripts/bench-selected.sh` to run the selected download/upload benchmarks with before/after server snapshots and local log capture.
+- Made benchmark DATAGRAM backlog waits deadline-aware so a congested download run still exits and reports a summary instead of hanging until the client times out.
 
 ## Next Candidates
 
-- Add CPU/network counters around benchmarks: server `pidstat`, `sar`, and `ss -u`.
 - Run a sudo TUN-mode browser/fast.com smoke test from macOS when an interactive password is available.
 - Inspect QUIC ACK/MTU discovery settings that directly affect DATAGRAM behavior under loss.
 - Compare against kernel WireGuard on the same OCI instance as the theoretical performance target.

@@ -25,12 +25,21 @@ impl DatagramBacklog {
 
     pub async fn queued(&mut self, connection: &Connection) -> Result<()> {
         self.queued_datagrams = self.queued_datagrams.saturating_add(1);
-        self.wait(connection).await
+        self.wait_until(connection, None).await.map(|_| ())
     }
 
-    async fn wait(&self, connection: &Connection) -> Result<()> {
+    pub async fn queued_until(
+        &mut self,
+        connection: &Connection,
+        deadline: Instant,
+    ) -> Result<bool> {
+        self.queued_datagrams = self.queued_datagrams.saturating_add(1);
+        self.wait_until(connection, Some(deadline)).await
+    }
+
+    async fn wait_until(&self, connection: &Connection, deadline: Option<Instant>) -> Result<bool> {
         if self.max_backlog_packets == 0 {
-            return Ok(());
+            return Ok(true);
         }
 
         loop {
@@ -41,13 +50,28 @@ impl DatagramBacklog {
                 .saturating_sub(self.baseline_tx_datagrams);
             let backlog = self.queued_datagrams.saturating_sub(transmitted);
             if backlog <= self.max_backlog_packets {
-                return Ok(());
+                return Ok(true);
+            }
+            if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+                return Ok(false);
             }
 
-            tokio::select! {
-                _ = sleep(Duration::from_millis(2)) => {}
-                reason = connection.closed() => {
-                    bail!("connection closed while waiting for datagram backlog: {reason}");
+            if let Some(deadline) = deadline {
+                tokio::select! {
+                    _ = sleep(Duration::from_millis(2)) => {}
+                    _ = sleep_until(deadline) => {
+                        return Ok(false);
+                    }
+                    reason = connection.closed() => {
+                        bail!("connection closed while waiting for datagram backlog: {reason}");
+                    }
+                }
+            } else {
+                tokio::select! {
+                    _ = sleep(Duration::from_millis(2)) => {}
+                    reason = connection.closed() => {
+                        bail!("connection closed while waiting for datagram backlog: {reason}");
+                    }
                 }
             }
         }

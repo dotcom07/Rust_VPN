@@ -11,6 +11,7 @@ config/*.token
 # Local editor, OS, and runtime noise.
 .DS_Store
 *.log
+bench-results/
 .env
 .env.*
 !.env.example
