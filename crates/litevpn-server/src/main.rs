@@ -15,8 +15,8 @@ use litevpn_core::{
     config::{ServerConfig, load_token, load_toml},
     crypto,
     quic::{
-        DatagramBacklog, connection_stats_summary, create_udp_socket, ensure_datagram_capacity,
-        pump_quic_to_tun, pump_tun_to_quic,
+        DatagramBacklog, EgressPacer, connection_stats_summary, create_udp_socket,
+        ensure_datagram_capacity, pump_quic_to_tun, pump_tun_to_quic,
     },
     tun::{TunDevice, TunOptions, create_tun},
 };
@@ -92,6 +92,7 @@ async fn main() -> Result<()> {
         mtu = config.mtu,
         external_interface = %config.external_interface,
         egress_target_mbps = config.egress_target_mbps,
+        adaptive_egress = config.adaptive_egress,
         "litevpn server ready"
     );
 
@@ -107,6 +108,7 @@ async fn main() -> Result<()> {
         let mtu = config.mtu as usize;
         let egress_target_mbps = config.egress_target_mbps;
         let datagram_backlog_packets = config.datagram_backlog_packets;
+        let adaptive_egress = config.adaptive_egress;
 
         tokio::spawn(async move {
             let mut client_id = None;
@@ -117,6 +119,7 @@ async fn main() -> Result<()> {
                 mtu,
                 egress_target_mbps,
                 datagram_backlog_packets,
+                adaptive_egress,
                 active.clone(),
                 next_client_id,
                 &mut client_id,
@@ -148,6 +151,7 @@ async fn handle_connection(
     mtu: usize,
     egress_target_mbps: u64,
     datagram_backlog_packets: u64,
+    adaptive_egress: bool,
     active: Arc<Mutex<Option<ActiveClient>>>,
     next_client_id: Arc<AtomicU64>,
     client_id: &mut Option<u64>,
@@ -177,6 +181,7 @@ async fn handle_connection(
             payload_bytes,
             target_mbps,
             datagram_backlog_packets,
+            adaptive_egress,
         )
         .await;
     }
@@ -210,6 +215,7 @@ async fn handle_connection(
         "server",
         egress_target_mbps,
         datagram_backlog_packets,
+        adaptive_egress,
     );
     let down = pump_quic_to_tun(&device, connection.clone(), "server");
 
@@ -229,6 +235,7 @@ async fn run_bench(
     payload_bytes: usize,
     target_mbps: Option<u64>,
     datagram_backlog_packets: u64,
+    adaptive_egress: bool,
 ) -> Result<()> {
     match direction {
         BenchDirection::Upload => {
@@ -241,6 +248,7 @@ async fn run_bench(
                 payload_bytes,
                 target_mbps,
                 datagram_backlog_packets,
+                adaptive_egress,
             )
             .await
         }
@@ -295,6 +303,7 @@ async fn run_download_bench(
     payload_bytes: usize,
     target_mbps: Option<u64>,
     datagram_backlog_packets: u64,
+    adaptive_egress: bool,
 ) -> Result<()> {
     let requested_payload_bytes = payload_bytes;
     let payload_bytes = connection
@@ -313,8 +322,7 @@ async fn run_download_bench(
     let deadline = started + Duration::from_secs(duration_secs);
     let mut packets = 0_u64;
     let mut bytes = 0_u64;
-    let target_bytes_per_sec = target_bytes_per_sec(target_mbps);
-    let burst_bytes = target_burst_bytes(target_bytes_per_sec, payload_bytes);
+    let mut pacer = EgressPacer::from_optional(target_mbps, payload_bytes, adaptive_egress);
     let mut datagram_backlog = DatagramBacklog::new(&connection, datagram_backlog_packets);
     let deadline_timer = sleep_until(deadline);
     tokio::pin!(deadline_timer);
@@ -331,7 +339,7 @@ async fn run_download_bench(
                 }
                 packets += 1;
                 bytes += payload_bytes as u64;
-                pace_to_target(started, bytes, target_bytes_per_sec, burst_bytes).await;
+                pacer.record_and_wait(payload_bytes, Some(&connection)).await;
             }
             reason = connection.closed() => {
                 warn!(%reason, "download bench connection closed");
@@ -396,39 +404,4 @@ async fn send_bench_summary(
         _ = sleep(Duration::from_millis(300)) => {}
     }
     Ok(())
-}
-
-fn target_bytes_per_sec(target_mbps: Option<u64>) -> Option<f64> {
-    target_mbps.map(|mbps| mbps as f64 * 1_000_000.0 / 8.0)
-}
-
-fn target_burst_bytes(target_bytes_per_sec: Option<f64>, payload_bytes: usize) -> u64 {
-    target_bytes_per_sec
-        .map(|bytes_per_sec| (bytes_per_sec * 0.010).max(payload_bytes as f64).ceil() as u64)
-        .unwrap_or(0)
-}
-
-async fn pace_to_target(
-    started: Instant,
-    bytes: u64,
-    target_bytes_per_sec: Option<f64>,
-    burst_bytes: u64,
-) {
-    let Some(target_bytes_per_sec) = target_bytes_per_sec else {
-        return;
-    };
-    if bytes <= burst_bytes {
-        return;
-    }
-    let elapsed = started.elapsed().as_secs_f64();
-    let allowed_bytes = elapsed * target_bytes_per_sec + burst_bytes as f64;
-    if bytes as f64 <= allowed_bytes {
-        return;
-    }
-    let target_elapsed =
-        Duration::from_secs_f64((bytes - burst_bytes) as f64 / target_bytes_per_sec);
-    let target_time = started + target_elapsed;
-    if target_time > Instant::now() {
-        sleep_until(target_time).await;
-    }
 }

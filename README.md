@@ -70,7 +70,7 @@ If the probe times out while the server service is active, open `443/udp` in the
 ## Benchmarks
 
 ```bash
-./target/release/litevpn-client --config config/client.toml --bench download --bench-duration-secs 10 --bench-target-mbps 34 --bench-payload-bytes 1300 --bench-runs 3
+./target/release/litevpn-client --config config/client.toml --bench download --bench-duration-secs 10 --bench-target-mbps 36 --bench-payload-bytes 1300 --bench-runs 3
 ./target/release/litevpn-client --config config/client.toml --bench upload --bench-duration-secs 10 --bench-target-mbps 13 --bench-payload-bytes 1300 --bench-runs 3
 ```
 

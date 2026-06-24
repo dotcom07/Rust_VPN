@@ -8,8 +8,8 @@ use litevpn_core::{
     config::{ClientConfig, load_token, load_toml},
     crypto,
     quic::{
-        DatagramBacklog, connection_stats_summary, create_udp_socket, ensure_datagram_capacity,
-        pump_quic_to_tun, pump_tun_to_quic,
+        DatagramBacklog, EgressPacer, connection_stats_summary, create_udp_socket,
+        ensure_datagram_capacity, pump_quic_to_tun, pump_tun_to_quic,
     },
     tun::{TunOptions, create_tun},
 };
@@ -150,6 +150,7 @@ async fn main() -> Result<()> {
             bench_runs,
             args.bench_run_gap_ms,
             args.connect_timeout_secs,
+            config.adaptive_egress,
         )
         .await?;
         return Ok(());
@@ -187,6 +188,7 @@ async fn main() -> Result<()> {
         tun = %device_name,
         mtu = config.mtu,
         egress_target_mbps = config.egress_target_mbps,
+        adaptive_egress = config.adaptive_egress,
         "client tun ready"
     );
 
@@ -210,6 +212,7 @@ async fn main() -> Result<()> {
         "client",
         config.egress_target_mbps,
         config.datagram_backlog_packets,
+        config.adaptive_egress,
     );
     let down = pump_quic_to_tun(&device, connection.clone(), "client");
 
@@ -329,6 +332,7 @@ async fn run_bench_iterations(
     runs: u64,
     run_gap_ms: u64,
     connect_timeout_secs: u64,
+    adaptive_egress: bool,
 ) -> Result<()> {
     let mut measurements = Vec::with_capacity(runs as usize);
     let mut next_endpoint = Some(first_endpoint);
@@ -361,6 +365,7 @@ async fn run_bench_iterations(
             payload_bytes,
             target_mbps,
             config.datagram_backlog_packets,
+            adaptive_egress,
         )
         .await;
         connection.close(0_u32.into(), b"bench complete");
@@ -383,6 +388,7 @@ async fn run_bench(
     payload_bytes: usize,
     target_mbps: Option<u64>,
     datagram_backlog_packets: u64,
+    adaptive_egress: bool,
 ) -> Result<BenchMeasurement> {
     if duration_secs == 0 {
         bail!("bench duration must be greater than zero");
@@ -396,6 +402,7 @@ async fn run_bench(
                 payload_bytes,
                 target_mbps,
                 datagram_backlog_packets,
+                adaptive_egress,
             )
             .await
         }
@@ -411,14 +418,14 @@ async fn run_upload_bench(
     payload_bytes: usize,
     target_mbps: Option<u64>,
     datagram_backlog_packets: u64,
+    adaptive_egress: bool,
 ) -> Result<BenchMeasurement> {
     let payload = Bytes::from(vec![0_u8; payload_bytes]);
     let started = Instant::now();
     let deadline = started + Duration::from_secs(duration_secs);
     let mut packets = 0_u64;
     let mut bytes = 0_u64;
-    let target_bytes_per_sec = target_bytes_per_sec(target_mbps);
-    let burst_bytes = target_burst_bytes(target_bytes_per_sec, payload_bytes);
+    let mut pacer = EgressPacer::from_optional(target_mbps, payload_bytes, adaptive_egress);
     let mut datagram_backlog = DatagramBacklog::new(connection, datagram_backlog_packets);
     let deadline_timer = sleep_until(deadline);
     tokio::pin!(deadline_timer);
@@ -435,7 +442,7 @@ async fn run_upload_bench(
                 }
                 packets += 1;
                 bytes += payload_bytes as u64;
-                pace_to_target(started, bytes, target_bytes_per_sec, burst_bytes).await;
+                pacer.record_and_wait(payload_bytes, Some(connection)).await;
             }
             reason = connection.closed() => {
                 bail!("connection closed during upload bench: {reason}");
@@ -680,41 +687,6 @@ fn parse_summary_u64(summary: &str, key: &str) -> Option<u64> {
         .split_whitespace()
         .find_map(|part| part.strip_prefix(&prefix))
         .and_then(|value| value.parse().ok())
-}
-
-fn target_bytes_per_sec(target_mbps: Option<u64>) -> Option<f64> {
-    target_mbps.map(|mbps| mbps as f64 * 1_000_000.0 / 8.0)
-}
-
-fn target_burst_bytes(target_bytes_per_sec: Option<f64>, payload_bytes: usize) -> u64 {
-    target_bytes_per_sec
-        .map(|bytes_per_sec| (bytes_per_sec * 0.010).max(payload_bytes as f64).ceil() as u64)
-        .unwrap_or(0)
-}
-
-async fn pace_to_target(
-    started: Instant,
-    bytes: u64,
-    target_bytes_per_sec: Option<f64>,
-    burst_bytes: u64,
-) {
-    let Some(target_bytes_per_sec) = target_bytes_per_sec else {
-        return;
-    };
-    if bytes <= burst_bytes {
-        return;
-    }
-    let elapsed = started.elapsed().as_secs_f64();
-    let allowed_bytes = elapsed * target_bytes_per_sec + burst_bytes as f64;
-    if bytes as f64 <= allowed_bytes {
-        return;
-    }
-    let target_elapsed =
-        Duration::from_secs_f64((bytes - burst_bytes) as f64 / target_bytes_per_sec);
-    let target_time = started + target_elapsed;
-    if target_time > Instant::now() {
-        sleep_until(target_time).await;
-    }
 }
 
 async fn shutdown_signal() -> Result<()> {

@@ -11,8 +11,8 @@ Server: `ubuntu@161.33.36.181`, OCI Osaka, `VM.Standard.E2.1.Micro`
 - Server kernel buffers: `rmem/wmem_max=16777216`, `rmem/wmem_default=1048576`, `netdev_max_backlog=4096`
 - Server congestion controller: `cubic`
 - Explicit UDP socket buffers: disabled (`0`, OS default)
-- Stable benchmark targets on current path: download `34 Mbps`, upload `13 Mbps`
-- VPN egress pacing: server `34 Mbps`, client `13 Mbps` on this deployment
+- Stable benchmark targets on current path: download `36 Mbps`, upload `13 Mbps`
+- VPN egress pacing: server `36 Mbps` adaptive, client `13 Mbps` static on this deployment
 - Congestion controller: server `cubic`, client `bbr`
 - Server deployment: local Rust build, replace only `/usr/local/bin/litevpn-server`
 
@@ -111,6 +111,9 @@ Commands:
 | Sweep smoke | download | 1300 | 38.03 Mbps local / 38.06 Mbps server | 57,097,300 server bytes | 6s x2 sweep found 38 Mbps zero-loss candidate |
 | Sweep smoke | upload | 1300 | 14.02 Mbps local / 14.01 Mbps server | 21,021,000 server bytes | 6s x2 sweep found 14 Mbps zero-loss candidate |
 | Selected rejection | mixed | 1300 | download avg 26.15 Mbps local / 26.23 Mbps server; upload 14.01 Mbps local / 14.01 Mbps server | 98,373,600 download server bytes, 52,551,200 upload server bytes | 38/14 candidate failed 10s x3 selected validation: download lost 382 packets, congestion 16; upload lost 1 packet; keep 34/13 |
+| Adaptive egress candidate | mixed | 1300 | download 38.01 Mbps local / 38.03 Mbps server; upload 11.02 Mbps local / 11.02 Mbps server | 142,645,100 download server bytes, 41,308,800 upload server bytes | Server+client adaptive 38/14 kept download loss 0 but over-throttled upload; not selected |
+| Adaptive egress candidate | mixed | 1300 | download 38.03 Mbps local / 38.04 Mbps server; upload 13.01 Mbps local / 13.00 Mbps server | 142,641,200 download server bytes, 48,764,300 upload server bytes | Server-only adaptive 38/13 once passed, but post-deploy validation showed 44 lost packets and 6 congestion events; not selected |
+| Adaptive egress selected | mixed | 1300 | download 36.01 Mbps local / 36.03 Mbps server; upload 13.01 Mbps local / 12.99 Mbps server | 135,141,500 download server bytes, 48,699,300 upload server bytes | Server-only adaptive 36/13, 10s x3; server loss/congestion 0; selected |
 | Paced MTU retest | download | 1350 | 37.82 Mbps | 47,548,350 bytes / 10s | 0 server loss, higher RTT |
 | Paced MTU retest | download | 1400 | 39.99 Mbps | 47,353,600 bytes / 10s | 0 server loss at 38 target, but edge-risk |
 | Paced MTU edge check | download | 1400 | failed | n/a | `datagram too large` at 45 Mbps target |
@@ -127,8 +130,8 @@ Commands:
 - Added configurable Quinn congestion control. Early BBR overran before pacing/backlog. A later server-side BBR retest raised short-run throughput, but Cubic remains selected on the server because it was more stable under RTT spikes.
 - Added explicit UDP socket buffer controls and tested 4MiB; kept OS default because throughput regressed.
 - Added Quinn connection stats to benchmark output. The latest low-throughput runs showed path RTT and loss spikes, not just local CPU pressure.
-- Added `--bench-target-mbps` pacing. Per-packet sleep was too coarse on macOS, so pacing uses a 10ms burst budget. Current stable benchmark targets are about 34 Mbps down and 13 Mbps up.
-- Added optional VPN-mode TUN-to-QUIC egress pacing. The selected defaults are server `34 Mbps` and client `13 Mbps`; set `egress_target_mbps = 0` to disable.
+- Added `--bench-target-mbps` pacing. Per-packet sleep was too coarse on macOS, so pacing uses a 10ms burst budget. Current stable benchmark targets are about 36 Mbps down and 13 Mbps up.
+- Added optional VPN-mode TUN-to-QUIC egress pacing. The selected defaults are server `36 Mbps` adaptive and client `13 Mbps` static; set `egress_target_mbps = 0` to disable.
 - Retested larger MTUs under pacing. Selected `1300`; `1400` is too close to the edge.
 - Made macOS route installation idempotent by deleting stale LiteVPN split-default routes before install and rolling back partial installs on failure.
 - Ensured client VPN mode still runs macOS route cleanup, QUIC close, and endpoint drain when either packet pump exits with an error.
@@ -142,6 +145,7 @@ Commands:
 - Added `scripts/bench-selected.sh` to run the selected download/upload benchmarks with before/after server snapshots and local log capture.
 - Made benchmark DATAGRAM backlog waits deadline-aware so a congested download run still exits and reports a summary instead of hanging until the client times out.
 - Added `scripts/bench-sweep.sh` to automate target sweeps and record parsed aggregate results in CSV, selecting the highest zero-loss target from a run.
+- Added `adaptive_egress` pacing. Server-only adaptive pacing allowed the selected download target to rise from 34 Mbps to 36 Mbps while keeping upload static at 13 Mbps; client-side adaptive was rejected because it over-throttled upload.
 
 ## Next Candidates
 

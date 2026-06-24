@@ -14,6 +14,124 @@ pub struct DatagramBacklog {
     max_backlog_packets: u64,
 }
 
+pub struct EgressPacer {
+    max_bytes_per_sec: Option<f64>,
+    current_bytes_per_sec: Option<f64>,
+    min_bytes_per_sec: Option<f64>,
+    burst_bytes: u64,
+    epoch_started: Instant,
+    epoch_bytes: u64,
+    adaptive: bool,
+    last_adjust: Instant,
+    last_lost_packets: Option<u64>,
+    last_congestion_events: Option<u64>,
+}
+
+impl EgressPacer {
+    pub fn new(target_mbps: u64, packet_bytes: usize, adaptive: bool) -> Self {
+        let max_bytes_per_sec = target_bytes_per_sec(target_mbps);
+        let min_bytes_per_sec = max_bytes_per_sec.map(|value| value * 0.50);
+        let now = Instant::now();
+        Self {
+            max_bytes_per_sec,
+            current_bytes_per_sec: max_bytes_per_sec,
+            min_bytes_per_sec,
+            burst_bytes: target_burst_bytes(max_bytes_per_sec, packet_bytes),
+            epoch_started: now,
+            epoch_bytes: 0,
+            adaptive,
+            last_adjust: now,
+            last_lost_packets: None,
+            last_congestion_events: None,
+        }
+    }
+
+    pub fn from_optional(target_mbps: Option<u64>, packet_bytes: usize, adaptive: bool) -> Self {
+        Self::new(target_mbps.unwrap_or(0), packet_bytes, adaptive)
+    }
+
+    pub async fn record_and_wait(&mut self, packet_bytes: usize, connection: Option<&Connection>) {
+        self.epoch_bytes = self.epoch_bytes.saturating_add(packet_bytes as u64);
+
+        if self.adaptive {
+            if let Some(connection) = connection {
+                self.adjust(connection);
+            }
+        }
+
+        self.wait().await;
+    }
+
+    fn adjust(&mut self, connection: &Connection) {
+        let Some(current) = self.current_bytes_per_sec else {
+            return;
+        };
+        if self.last_adjust.elapsed() < Duration::from_millis(250) {
+            return;
+        }
+
+        let stats = connection.stats();
+        let lost_packets = stats.path.lost_packets;
+        let congestion_events = stats.path.congestion_events;
+        let Some(previous_lost_packets) = self.last_lost_packets.replace(lost_packets) else {
+            self.last_congestion_events = Some(congestion_events);
+            self.last_adjust = Instant::now();
+            return;
+        };
+        let previous_congestion_events = self
+            .last_congestion_events
+            .replace(congestion_events)
+            .unwrap_or(congestion_events);
+        self.last_adjust = Instant::now();
+
+        let next = if lost_packets > previous_lost_packets
+            || congestion_events > previous_congestion_events
+        {
+            let min = self.min_bytes_per_sec.unwrap_or(current);
+            (current * 0.85).max(min)
+        } else {
+            let max = self.max_bytes_per_sec.unwrap_or(current);
+            (current * 1.02).min(max)
+        };
+
+        if (next - current).abs() > f64::EPSILON {
+            self.current_bytes_per_sec = Some(next);
+            self.reset_epoch();
+            debug!(
+                adaptive_egress_mbps = next * 8.0 / 1_000_000.0,
+                lost_packets, congestion_events, "adjusted egress pacer"
+            );
+        }
+    }
+
+    fn reset_epoch(&mut self) {
+        self.epoch_started = Instant::now();
+        self.epoch_bytes = 0;
+    }
+
+    async fn wait(&self) {
+        let Some(current_bytes_per_sec) = self.current_bytes_per_sec else {
+            return;
+        };
+        if self.epoch_bytes <= self.burst_bytes {
+            return;
+        }
+
+        let elapsed = self.epoch_started.elapsed().as_secs_f64();
+        let allowed_bytes = elapsed * current_bytes_per_sec + self.burst_bytes as f64;
+        if self.epoch_bytes as f64 <= allowed_bytes {
+            return;
+        }
+        let target_elapsed = Duration::from_secs_f64(
+            (self.epoch_bytes - self.burst_bytes) as f64 / current_bytes_per_sec,
+        );
+        let target_time = self.epoch_started + target_elapsed;
+        if target_time > Instant::now() {
+            sleep_until(target_time).await;
+        }
+    }
+}
+
 impl DatagramBacklog {
     pub fn new(connection: &Connection, max_backlog_packets: u64) -> Self {
         Self {
@@ -145,12 +263,10 @@ pub async fn pump_tun_to_quic(
     label: &'static str,
     egress_target_mbps: u64,
     datagram_backlog_packets: u64,
+    adaptive_egress: bool,
 ) -> Result<()> {
     let mut buf = vec![0_u8; mtu + 64];
-    let started = Instant::now();
-    let mut bytes = 0_u64;
-    let target_bytes_per_sec = target_bytes_per_sec(egress_target_mbps);
-    let burst_bytes = target_burst_bytes(target_bytes_per_sec, mtu);
+    let mut pacer = EgressPacer::new(egress_target_mbps, mtu, adaptive_egress);
     let mut datagram_backlog = DatagramBacklog::new(&connection, datagram_backlog_packets);
     loop {
         let n = tokio::select! {
@@ -178,8 +294,7 @@ pub async fn pump_tun_to_quic(
             .send_datagram_wait(Bytes::copy_from_slice(&buf[..n]))
             .await?;
         datagram_backlog.queued(&connection).await?;
-        bytes += n as u64;
-        pace_to_target(started, bytes, target_bytes_per_sec, burst_bytes).await;
+        pacer.record_and_wait(n, Some(&connection)).await;
     }
 }
 
@@ -212,29 +327,4 @@ fn target_burst_bytes(target_bytes_per_sec: Option<f64>, mtu: usize) -> u64 {
     target_bytes_per_sec
         .map(|bytes_per_sec| (bytes_per_sec * 0.010).max(mtu as f64).ceil() as u64)
         .unwrap_or(0)
-}
-
-async fn pace_to_target(
-    started: Instant,
-    bytes: u64,
-    target_bytes_per_sec: Option<f64>,
-    burst_bytes: u64,
-) {
-    let Some(target_bytes_per_sec) = target_bytes_per_sec else {
-        return;
-    };
-    if bytes <= burst_bytes {
-        return;
-    }
-    let elapsed = started.elapsed().as_secs_f64();
-    let allowed_bytes = elapsed * target_bytes_per_sec + burst_bytes as f64;
-    if bytes as f64 <= allowed_bytes {
-        return;
-    }
-    let target_elapsed =
-        Duration::from_secs_f64((bytes - burst_bytes) as f64 / target_bytes_per_sec);
-    let target_time = started + target_elapsed;
-    if target_time > Instant::now() {
-        sleep_until(target_time).await;
-    }
 }

@@ -42,6 +42,11 @@ case "$DIRECTION" in
 esac
 
 CLIENT="$ROOT/target/release/litevpn-client"
+if [[ "$CONFIG" = /* ]]; then
+  CONFIG_PATH="$CONFIG"
+else
+  CONFIG_PATH="$ROOT/$CONFIG"
+fi
 if [[ ! -x "$CLIENT" ]]; then
   echo "missing $CLIENT; run cargo build --release --workspace first" >&2
   exit 1
@@ -68,6 +73,7 @@ failures=0
 echo "== LiteVPN bench sweep =="
 date '+%Y-%m-%dT%H:%M:%S%z'
 echo "direction=$DIRECTION"
+echo "config=$CONFIG_PATH"
 echo "targets=$TARGETS"
 echo "duration_secs=$DURATION runs=$RUNS run_gap_ms=$RUN_GAP_MS payload_bytes=$PAYLOAD_BYTES"
 echo "summary=$SUMMARY"
@@ -78,7 +84,7 @@ for target in $TARGETS; do
   echo "== bench $DIRECTION target ${target} Mbps =="
 
   if "$CLIENT" \
-    --config "$ROOT/$CONFIG" \
+    --config "$CONFIG_PATH" \
     --bench "$DIRECTION" \
     --bench-duration-secs "$DURATION" \
     --bench-target-mbps "$target" \

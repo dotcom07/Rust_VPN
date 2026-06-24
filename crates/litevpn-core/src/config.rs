@@ -37,6 +37,7 @@ pub struct ServerConfig {
     pub udp_send_buffer_bytes: usize,
     pub egress_target_mbps: u64,
     pub datagram_backlog_packets: u64,
+    pub adaptive_egress: bool,
 }
 
 impl Default for ServerConfig {
@@ -58,8 +59,9 @@ impl Default for ServerConfig {
             congestion_controller: CongestionController::Cubic,
             udp_recv_buffer_bytes: DEFAULT_UDP_SOCKET_BUFFER_BYTES,
             udp_send_buffer_bytes: DEFAULT_UDP_SOCKET_BUFFER_BYTES,
-            egress_target_mbps: 34,
+            egress_target_mbps: 36,
             datagram_backlog_packets: DEFAULT_DATAGRAM_BACKLOG_PACKETS,
+            adaptive_egress: true,
         }
     }
 }
@@ -100,6 +102,7 @@ pub struct ClientConfig {
     pub udp_send_buffer_bytes: usize,
     pub egress_target_mbps: u64,
     pub datagram_backlog_packets: u64,
+    pub adaptive_egress: bool,
 }
 
 impl Default for ClientConfig {
@@ -122,6 +125,7 @@ impl Default for ClientConfig {
             udp_send_buffer_bytes: DEFAULT_UDP_SOCKET_BUFFER_BYTES,
             egress_target_mbps: 13,
             datagram_backlog_packets: DEFAULT_DATAGRAM_BACKLOG_PACKETS,
+            adaptive_egress: false,
         }
     }
 }

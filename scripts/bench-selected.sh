@@ -10,7 +10,7 @@ DURATION="${DURATION:-10}"
 RUNS="${RUNS:-3}"
 RUN_GAP_MS="${RUN_GAP_MS:-150}"
 PAYLOAD_BYTES="${PAYLOAD_BYTES:-1300}"
-DOWNLOAD_MBPS="${DOWNLOAD_MBPS:-34}"
+DOWNLOAD_MBPS="${DOWNLOAD_MBPS:-36}"
 UPLOAD_MBPS="${UPLOAD_MBPS:-13}"
 CONNECT_TIMEOUT_SECS="${CONNECT_TIMEOUT_SECS:-10}"
 OUT_DIR="${OUT_DIR:-bench-results}"
@@ -27,7 +27,7 @@ Environment:
   RUNS=3
   RUN_GAP_MS=150
   PAYLOAD_BYTES=1300
-  DOWNLOAD_MBPS=34
+  DOWNLOAD_MBPS=36
   UPLOAD_MBPS=13
   CONNECT_TIMEOUT_SECS=10
   OUT_DIR=bench-results
@@ -37,6 +37,11 @@ HELP
 fi
 
 CLIENT="$ROOT/target/release/litevpn-client"
+if [[ "$CONFIG" = /* ]]; then
+  CONFIG_PATH="$CONFIG"
+else
+  CONFIG_PATH="$ROOT/$CONFIG"
+fi
 if [[ ! -x "$CLIENT" ]]; then
   echo "missing $CLIENT; run cargo build --release --workspace first" >&2
   exit 1
@@ -50,7 +55,7 @@ exec > >(tee "$LOG") 2>&1
 
 echo "== LiteVPN selected benchmark =="
 date '+%Y-%m-%dT%H:%M:%S%z'
-echo "config=$CONFIG"
+echo "config=$CONFIG_PATH"
 echo "host=$HOST"
 echo "duration_secs=$DURATION runs=$RUNS run_gap_ms=$RUN_GAP_MS payload_bytes=$PAYLOAD_BYTES"
 echo "download_mbps=$DOWNLOAD_MBPS upload_mbps=$UPLOAD_MBPS"
@@ -76,7 +81,7 @@ run_bench() {
   echo
   echo "== bench $direction target ${mbps} Mbps =="
   if ! "$CLIENT" \
-    --config "$ROOT/$CONFIG" \
+    --config "$CONFIG_PATH" \
     --bench "$direction" \
     --bench-duration-secs "$DURATION" \
     --bench-target-mbps "$mbps" \
