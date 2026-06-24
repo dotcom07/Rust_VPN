@@ -5,7 +5,7 @@ Server: `ubuntu@161.33.36.181`, OCI Osaka, `VM.Standard.E2.1.Micro`
 
 ## Current Selected Settings
 
-- Tunnel MTU: `1162`
+- Tunnel MTU: `1300`
 - QUIC initial MTU: `min(tun_mtu + 160, 1452)`
 - Benchmark payload: auto, capped by `connection.max_datagram_size()` and config MTU
 - Server kernel buffers: `rmem/wmem_max=16777216`, `rmem/wmem_default=1048576`, `netdev_max_backlog=4096`
@@ -15,11 +15,13 @@ Server: `ubuntu@161.33.36.181`, OCI Osaka, `VM.Standard.E2.1.Micro`
 - VPN egress pacing: server `38 Mbps`, client `15 Mbps` on this deployment
 - Server deployment: local Rust build, replace only `/usr/local/bin/litevpn-server`
 
-## Why 1162 Is Selected
+## Why 1300 Is Selected
 
 The first benchmark exposed a mismatch: config MTU was `1200`, but QUIC's effective app datagram capacity was `1162`.
 That meant full-size TUN packets could be dropped before this fix. Larger payloads were tested, but this server/client path was
-very sensitive above `1162` in the download direction.
+very sensitive above `1162` in the download direction without pacing. After adding egress pacing, payloads up to `1400`
+were retested. `1300` is selected because it reduces packet count materially while keeping margin below the path/QUIC edge;
+`1400` worked at 38 Mbps once, but failed at a higher target with `datagram too large`.
 
 ## Benchmark Results
 
@@ -64,6 +66,16 @@ Commands:
 | Unlimited comparison | download | 1162 | 35.14 Mbps | 53,629,786 bytes / 10s | Server lost 4,742 packets / 5,653,484 bytes |
 | VPN egress pacing deploy check | download | 1162 | 38.03 Mbps | 47,546,716 bytes / 10s | Server loss 0, congestion 0 |
 | VPN egress pacing deploy check | upload | 1162 | 15.01 Mbps | 18,702,390 bytes / 11s | Target reached |
+| Paced MTU retest | download | 1200 | 38.01 Mbps | 47,546,400 bytes / 10s | 0 server loss, 0 congestion |
+| Paced MTU retest | download | 1250 | 38.01 Mbps | 47,547,500 bytes / 10s | 0 server loss, 0 congestion |
+| Paced MTU retest | download | 1300 | 38.02 Mbps | 47,547,500 bytes / 10s | 0 server loss, 0 congestion |
+| Paced MTU retest | upload | 1300 | 15.01 Mbps | 18,762,900 bytes / 11s | 0 server loss |
+| Post-deploy confirmation | download | 1300 | 38.01 Mbps | 47,547,500 bytes / 10s | Server loss 0, congestion 0 |
+| Post-deploy confirmation | upload | 1300 | 15.01 Mbps | 18,768,100 bytes / 11s | Client/server loss 0, congestion 0 |
+| Paced MTU retest | download | 1350 | 37.82 Mbps | 47,548,350 bytes / 10s | 0 server loss, higher RTT |
+| Paced MTU retest | download | 1400 | 39.99 Mbps | 47,353,600 bytes / 10s | 0 server loss at 38 target, but edge-risk |
+| Paced MTU edge check | download | 1400 | failed | n/a | `datagram too large` at 45 Mbps target |
+| Paced MTU edge check | download | 1300 | 34.89 Mbps | 50,044,800 bytes / 10s | 40 Mbps target caused loss; keep 38 Mbps target |
 
 ## Code Changes In This Iteration
 
@@ -77,7 +89,8 @@ Commands:
 - Added explicit UDP socket buffer controls and tested 4MiB; kept OS default because throughput regressed.
 - Added Quinn connection stats to benchmark output. The latest low-throughput runs showed path RTT and loss spikes, not just local CPU pressure.
 - Added `--bench-target-mbps` pacing. Per-packet sleep was too coarse on macOS, so pacing uses a 10ms burst budget. Current stable benchmark targets are about 38 Mbps down and 15 Mbps up.
-- Added optional VPN-mode TUN-to-QUIC egress pacing. It is off by default, but this deployment uses server `38 Mbps` and client `15 Mbps`.
+- Added optional VPN-mode TUN-to-QUIC egress pacing. The selected defaults are server `38 Mbps` and client `15 Mbps`; set `egress_target_mbps = 0` to disable.
+- Retested larger MTUs under pacing. Selected `1300`; `1400` is too close to the edge.
 
 ## Next Candidates
 

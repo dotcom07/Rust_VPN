@@ -54,7 +54,7 @@ impl Default for ServerConfig {
             congestion_controller: CongestionController::Cubic,
             udp_recv_buffer_bytes: DEFAULT_UDP_SOCKET_BUFFER_BYTES,
             udp_send_buffer_bytes: DEFAULT_UDP_SOCKET_BUFFER_BYTES,
-            egress_target_mbps: 0,
+            egress_target_mbps: 38,
         }
     }
 }
@@ -113,7 +113,7 @@ impl Default for ClientConfig {
             congestion_controller: CongestionController::Cubic,
             udp_recv_buffer_bytes: DEFAULT_UDP_SOCKET_BUFFER_BYTES,
             udp_send_buffer_bytes: DEFAULT_UDP_SOCKET_BUFFER_BYTES,
-            egress_target_mbps: 0,
+            egress_target_mbps: 15,
         }
     }
 }
