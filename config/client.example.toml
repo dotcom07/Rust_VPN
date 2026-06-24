@@ -13,4 +13,4 @@ datagram_buffer_bytes = 4194304
 congestion_controller = "cubic"
 udp_recv_buffer_bytes = 0
 udp_send_buffer_bytes = 0
-egress_target_mbps = 14
+egress_target_mbps = 13
