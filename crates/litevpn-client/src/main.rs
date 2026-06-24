@@ -51,6 +51,31 @@ struct Args {
 
     #[arg(long, default_value_t = 0)]
     bench_target_mbps: u64,
+
+    #[arg(long, default_value_t = 1)]
+    bench_runs: u64,
+
+    #[arg(long, default_value_t = 250)]
+    bench_run_gap_ms: u64,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct BenchMeasurement {
+    mbps: f64,
+    bytes: u64,
+    packets: u64,
+    elapsed: Duration,
+    server: Option<ServerBenchMeasurement>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ServerBenchMeasurement {
+    mbps: f64,
+    bytes: u64,
+    packets: u64,
+    lost_packets: u64,
+    congestion_events: u64,
+    elapsed_ms: u64,
 }
 
 #[tokio::main(flavor = "multi_thread")]
@@ -63,40 +88,32 @@ async fn main() -> Result<()> {
     let config: ClientConfig = load_toml(&args.config)?;
     config.validate()?;
     let token = load_token(&config.auth_token_path)?;
-
     let server_addr: SocketAddr = config.server.parse().context("invalid server address")?;
+    let bench_direction = args
+        .bench
+        .as_deref()
+        .map(parse_bench_direction)
+        .transpose()?;
+    let bench_target_mbps = bench_target_mbps(args.bench_target_mbps)?;
+    let bench_runs = if bench_direction.is_some() {
+        bench_runs(args.bench_runs)?
+    } else {
+        1
+    };
     let client_config = crypto::client_config(
         &config.ca_cert_path,
         config.datagram_buffer_bytes,
         config.mtu,
         config.congestion_controller,
     )?;
-    let bind_addr: SocketAddr = if server_addr.is_ipv4() {
-        "0.0.0.0:0".parse().unwrap()
-    } else {
-        "[::]:0".parse().unwrap()
-    };
-    let socket = create_udp_socket(
-        bind_addr,
-        config.udp_recv_buffer_bytes,
-        config.udp_send_buffer_bytes,
-    )?;
-    let runtime = quinn::default_runtime().context("no async runtime found")?;
-    let mut endpoint = Endpoint::new(EndpointConfig::default(), None, socket, runtime)?;
-    endpoint.set_default_client_config(client_config);
+    let (endpoint, connection) = connect_client(
+        &config,
+        server_addr,
+        client_config.clone(),
+        args.connect_timeout_secs,
+    )
+    .await?;
 
-    info!(server = %server_addr, server_name = %config.server_name, "connecting");
-    let connecting = endpoint.connect(server_addr, &config.server_name)?;
-    let connection = timeout(Duration::from_secs(args.connect_timeout_secs), connecting)
-        .await
-        .context("connect timed out")?
-        .context("failed to connect to server")?;
-
-    let bench_direction = args
-        .bench
-        .as_deref()
-        .map(parse_bench_direction)
-        .transpose()?;
     let bench_payload_bytes = match bench_direction {
         Some(_) => bench_payload_bytes(
             args.bench_payload_bytes,
@@ -110,7 +127,7 @@ async fn main() -> Result<()> {
             direction,
             duration_secs: args.bench_duration_secs,
             payload_bytes: bench_payload_bytes,
-            target_mbps: bench_target_mbps(args.bench_target_mbps)?,
+            target_mbps: bench_target_mbps,
         },
         None => AuthMode::Vpn,
     };
@@ -118,16 +135,23 @@ async fn main() -> Result<()> {
     info!(remote = %connection.remote_address(), "authenticated");
 
     if let Some(direction) = bench_direction {
-        run_bench(
-            &connection,
+        run_bench_iterations(
+            endpoint,
+            connection,
+            &config,
+            client_config,
+            server_addr,
+            &token,
+            auth_mode,
             direction,
             args.bench_duration_secs,
             bench_payload_bytes,
-            bench_target_mbps(args.bench_target_mbps)?,
+            bench_target_mbps,
+            bench_runs,
+            args.bench_run_gap_ms,
+            args.connect_timeout_secs,
         )
         .await?;
-        connection.close(0_u32.into(), b"bench complete");
-        endpoint.wait_idle().await;
         return Ok(());
     }
 
@@ -212,6 +236,35 @@ async fn main() -> Result<()> {
     run_result
 }
 
+async fn connect_client(
+    config: &ClientConfig,
+    server_addr: SocketAddr,
+    client_config: quinn::ClientConfig,
+    connect_timeout_secs: u64,
+) -> Result<(Endpoint, quinn::Connection)> {
+    let bind_addr: SocketAddr = if server_addr.is_ipv4() {
+        "0.0.0.0:0".parse().unwrap()
+    } else {
+        "[::]:0".parse().unwrap()
+    };
+    let socket = create_udp_socket(
+        bind_addr,
+        config.udp_recv_buffer_bytes,
+        config.udp_send_buffer_bytes,
+    )?;
+    let runtime = quinn::default_runtime().context("no async runtime found")?;
+    let mut endpoint = Endpoint::new(EndpointConfig::default(), None, socket, runtime)?;
+    endpoint.set_default_client_config(client_config);
+
+    info!(server = %server_addr, server_name = %config.server_name, "connecting");
+    let connecting = endpoint.connect(server_addr, &config.server_name)?;
+    let connection = timeout(Duration::from_secs(connect_timeout_secs), connecting)
+        .await
+        .context("connect timed out")?
+        .context("failed to connect to server")?;
+    Ok((endpoint, connection))
+}
+
 fn parse_bench_direction(value: &str) -> Result<BenchDirection> {
     match value {
         "upload" => Ok(BenchDirection::Upload),
@@ -250,13 +303,84 @@ fn bench_target_mbps(value: u64) -> Result<Option<u64>> {
     Ok(Some(value))
 }
 
+fn bench_runs(value: u64) -> Result<u64> {
+    if value == 0 {
+        bail!("bench runs must be greater than zero");
+    }
+    if value > 100 {
+        bail!("bench runs must be <= 100");
+    }
+    Ok(value)
+}
+
+async fn run_bench_iterations(
+    first_endpoint: Endpoint,
+    first_connection: quinn::Connection,
+    config: &ClientConfig,
+    client_config: quinn::ClientConfig,
+    server_addr: SocketAddr,
+    token: &str,
+    auth_mode: AuthMode,
+    direction: BenchDirection,
+    duration_secs: u64,
+    payload_bytes: usize,
+    target_mbps: Option<u64>,
+    runs: u64,
+    run_gap_ms: u64,
+    connect_timeout_secs: u64,
+) -> Result<()> {
+    let mut measurements = Vec::with_capacity(runs as usize);
+    let mut next_endpoint = Some(first_endpoint);
+    let mut next_connection = Some(first_connection);
+
+    for run in 1..=runs {
+        let (endpoint, connection) = match (next_endpoint.take(), next_connection.take()) {
+            (Some(endpoint), Some(connection)) => (endpoint, connection),
+            _ => {
+                let (endpoint, connection) = connect_client(
+                    config,
+                    server_addr,
+                    client_config.clone(),
+                    connect_timeout_secs,
+                )
+                .await?;
+                client_authenticate_with_mode(&connection, token, auth_mode).await?;
+                info!(remote = %connection.remote_address(), run, runs, "authenticated bench run");
+                (endpoint, connection)
+            }
+        };
+
+        if runs > 1 {
+            println!("bench run {run}/{runs}");
+        }
+        let result = run_bench(
+            &connection,
+            direction,
+            duration_secs,
+            payload_bytes,
+            target_mbps,
+        )
+        .await;
+        connection.close(0_u32.into(), b"bench complete");
+        endpoint.wait_idle().await;
+        measurements.push(result?);
+
+        if run < runs && run_gap_ms > 0 {
+            sleep(Duration::from_millis(run_gap_ms)).await;
+        }
+    }
+
+    print_bench_aggregate(&measurements);
+    Ok(())
+}
+
 async fn run_bench(
     connection: &quinn::Connection,
     direction: BenchDirection,
     duration_secs: u64,
     payload_bytes: usize,
     target_mbps: Option<u64>,
-) -> Result<()> {
+) -> Result<BenchMeasurement> {
     if duration_secs == 0 {
         bail!("bench duration must be greater than zero");
     }
@@ -276,7 +400,7 @@ async fn run_upload_bench(
     duration_secs: u64,
     payload_bytes: usize,
     target_mbps: Option<u64>,
-) -> Result<()> {
+) -> Result<BenchMeasurement> {
     let payload = Bytes::from(vec![0_u8; payload_bytes]);
     let started = Instant::now();
     let deadline = started + Duration::from_secs(duration_secs);
@@ -322,7 +446,12 @@ async fn run_upload_bench(
     println!("client stats: {}", connection_stats_summary(connection));
     println!("server {summary}");
     sleep(Duration::from_millis(100)).await;
-    Ok(())
+    Ok(bench_measurement(
+        elapsed,
+        bytes,
+        packets,
+        parse_server_bench_measurement(&summary),
+    ))
 }
 
 async fn run_download_bench(
@@ -330,7 +459,7 @@ async fn run_download_bench(
     duration_secs: u64,
     payload_bytes: usize,
     target_mbps: Option<u64>,
-) -> Result<()> {
+) -> Result<BenchMeasurement> {
     let started = Instant::now();
     let deadline = started + Duration::from_secs(duration_secs + 5);
     let mut packets = 0_u64;
@@ -353,7 +482,12 @@ async fn run_download_bench(
                 );
                 println!("client stats: {}", connection_stats_summary(connection));
                 println!("server {summary}");
-                return Ok(());
+                return Ok(bench_measurement(
+                    started.elapsed(),
+                    bytes,
+                    packets,
+                    parse_server_bench_measurement(&summary),
+                ));
             }
             packet = connection.read_datagram() => {
                 let packet = packet?;
@@ -408,6 +542,128 @@ fn print_local_bench(
         "{label}: {mbps:.2} Mbps, target_mbps={target}, bytes={bytes}, packets={packets}, payload_bytes={payload_bytes}, elapsed_ms={}",
         elapsed.as_millis()
     );
+}
+
+fn bench_measurement(
+    elapsed: Duration,
+    bytes: u64,
+    packets: u64,
+    server: Option<ServerBenchMeasurement>,
+) -> BenchMeasurement {
+    let seconds = elapsed.as_secs_f64().max(0.001);
+    BenchMeasurement {
+        mbps: bytes as f64 * 8.0 / seconds / 1_000_000.0,
+        bytes,
+        packets,
+        elapsed,
+        server,
+    }
+}
+
+fn print_bench_aggregate(measurements: &[BenchMeasurement]) {
+    if measurements.len() <= 1 {
+        return;
+    }
+
+    let runs = measurements.len();
+    let total_mbps: f64 = measurements
+        .iter()
+        .map(|measurement| measurement.mbps)
+        .sum();
+    let total_bytes: u64 = measurements
+        .iter()
+        .map(|measurement| measurement.bytes)
+        .sum();
+    let total_packets: u64 = measurements
+        .iter()
+        .map(|measurement| measurement.packets)
+        .sum();
+    let total_elapsed_ms: u128 = measurements
+        .iter()
+        .map(|measurement| measurement.elapsed.as_millis())
+        .sum();
+    let min_mbps = measurements
+        .iter()
+        .map(|measurement| measurement.mbps)
+        .fold(f64::INFINITY, f64::min);
+    let max_mbps = measurements
+        .iter()
+        .map(|measurement| measurement.mbps)
+        .fold(f64::NEG_INFINITY, f64::max);
+    println!(
+        "bench aggregate local: runs={runs}, avg_mbps={:.2}, min_mbps={min_mbps:.2}, max_mbps={max_mbps:.2}, total_bytes={total_bytes}, total_packets={total_packets}, total_elapsed_ms={total_elapsed_ms}",
+        total_mbps / runs as f64
+    );
+
+    let server_measurements: Vec<_> = measurements
+        .iter()
+        .filter_map(|measurement| measurement.server)
+        .collect();
+    if server_measurements.len() != measurements.len() {
+        return;
+    }
+
+    let server_total_mbps: f64 = server_measurements
+        .iter()
+        .map(|measurement| measurement.mbps)
+        .sum();
+    let server_total_bytes: u64 = server_measurements
+        .iter()
+        .map(|measurement| measurement.bytes)
+        .sum();
+    let server_total_packets: u64 = server_measurements
+        .iter()
+        .map(|measurement| measurement.packets)
+        .sum();
+    let server_total_lost_packets: u64 = server_measurements
+        .iter()
+        .map(|measurement| measurement.lost_packets)
+        .sum();
+    let server_total_congestion_events: u64 = server_measurements
+        .iter()
+        .map(|measurement| measurement.congestion_events)
+        .sum();
+    let server_total_elapsed_ms: u64 = server_measurements
+        .iter()
+        .map(|measurement| measurement.elapsed_ms)
+        .sum();
+    let server_min_mbps = server_measurements
+        .iter()
+        .map(|measurement| measurement.mbps)
+        .fold(f64::INFINITY, f64::min);
+    let server_max_mbps = server_measurements
+        .iter()
+        .map(|measurement| measurement.mbps)
+        .fold(f64::NEG_INFINITY, f64::max);
+    println!(
+        "bench aggregate server: runs={runs}, avg_mbps={:.2}, min_mbps={server_min_mbps:.2}, max_mbps={server_max_mbps:.2}, total_bytes={server_total_bytes}, total_packets={server_total_packets}, lost_packets={server_total_lost_packets}, congestion_events={server_total_congestion_events}, total_elapsed_ms={server_total_elapsed_ms}",
+        server_total_mbps / runs as f64
+    );
+}
+
+fn parse_server_bench_measurement(summary: &str) -> Option<ServerBenchMeasurement> {
+    let bytes = parse_summary_u64(summary, "bytes")?;
+    let packets = parse_summary_u64(summary, "packets")?;
+    let elapsed_ms = parse_summary_u64(summary, "elapsed_ms")?;
+    let lost_packets = parse_summary_u64(summary, "lost_packets").unwrap_or(0);
+    let congestion_events = parse_summary_u64(summary, "congestion_events").unwrap_or(0);
+    let seconds = (elapsed_ms as f64 / 1000.0).max(0.001);
+    Some(ServerBenchMeasurement {
+        mbps: bytes as f64 * 8.0 / seconds / 1_000_000.0,
+        bytes,
+        packets,
+        lost_packets,
+        congestion_events,
+        elapsed_ms,
+    })
+}
+
+fn parse_summary_u64(summary: &str, key: &str) -> Option<u64> {
+    let prefix = format!("{key}=");
+    summary
+        .split_whitespace()
+        .find_map(|part| part.strip_prefix(&prefix))
+        .and_then(|value| value.parse().ok())
 }
 
 fn target_bytes_per_sec(target_mbps: Option<u64>) -> Option<f64> {
@@ -467,5 +723,35 @@ async fn shutdown_signal() -> Result<()> {
             .await
             .context("failed to listen for Ctrl+C")?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_server_bench_measurement() {
+        let summary = "direction=download bytes=28548000 packets=21960 payload_bytes=1300 target_mbps=38 elapsed_ms=6000 udp_tx_datagrams=21963 lost_packets=54 congestion_events=3";
+        let measurement = parse_server_bench_measurement(summary).expect("parsed measurement");
+
+        assert_eq!(measurement.bytes, 28_548_000);
+        assert_eq!(measurement.packets, 21_960);
+        assert_eq!(measurement.lost_packets, 54);
+        assert_eq!(measurement.congestion_events, 3);
+        assert_eq!(measurement.elapsed_ms, 6_000);
+        assert!((measurement.mbps - 38.064).abs() < 0.001);
+    }
+
+    #[test]
+    fn rejects_incomplete_server_bench_measurement() {
+        assert!(parse_server_bench_measurement("bytes=1 packets=1").is_none());
+    }
+
+    #[test]
+    fn validates_bench_runs() {
+        assert_eq!(bench_runs(1).expect("valid run count"), 1);
+        assert!(bench_runs(0).is_err());
+        assert!(bench_runs(101).is_err());
     }
 }

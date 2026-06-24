@@ -66,3 +66,12 @@ sudo ./target/release/litevpn-client --config config/client.toml
 Use `--no-routes` to test the tunnel without changing macOS routes.
 
 If the probe times out while the server service is active, open `443/udp` in the Oracle Cloud Security List or NSG for the instance subnet.
+
+## Benchmarks
+
+```bash
+./target/release/litevpn-client --config config/client.toml --bench download --bench-duration-secs 10 --bench-target-mbps 38 --bench-payload-bytes 1300 --bench-runs 3
+./target/release/litevpn-client --config config/client.toml --bench upload --bench-duration-secs 10 --bench-target-mbps 14 --bench-payload-bytes 1300 --bench-runs 3
+```
+
+Repeated benchmark output includes local send/receive aggregate stats and parsed server-side aggregate stats.
