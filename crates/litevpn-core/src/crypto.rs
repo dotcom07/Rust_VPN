@@ -8,13 +8,13 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 use quinn::{
-    ClientConfig, ServerConfig, TransportConfig, VarInt,
+    ClientConfig, ServerConfig, TransportConfig, VarInt, congestion,
     crypto::rustls::{QuicClientConfig, QuicServerConfig},
 };
 use rustls::RootCertStore;
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 
-use crate::ALPN;
+use crate::{ALPN, config::CongestionController};
 
 static RUSTLS_PROVIDER: Once = Once::new();
 
@@ -23,6 +23,7 @@ pub fn server_config(
     key_path: impl AsRef<Path>,
     datagram_buffer_bytes: usize,
     tun_mtu: u16,
+    congestion_controller: CongestionController,
 ) -> Result<ServerConfig> {
     install_crypto_provider();
 
@@ -36,7 +37,11 @@ pub fn server_config(
 
     let mut config =
         ServerConfig::with_crypto(Arc::new(QuicServerConfig::try_from(server_crypto)?));
-    config.transport_config(Arc::new(transport_config(datagram_buffer_bytes, tun_mtu)));
+    config.transport_config(Arc::new(transport_config(
+        datagram_buffer_bytes,
+        tun_mtu,
+        congestion_controller,
+    )));
     Ok(config)
 }
 
@@ -44,6 +49,7 @@ pub fn client_config(
     ca_cert_path: impl AsRef<Path>,
     datagram_buffer_bytes: usize,
     tun_mtu: u16,
+    congestion_controller: CongestionController,
 ) -> Result<ClientConfig> {
     install_crypto_provider();
 
@@ -58,7 +64,11 @@ pub fn client_config(
     client_crypto.alpn_protocols = vec![ALPN.to_vec()];
 
     let mut config = ClientConfig::new(Arc::new(QuicClientConfig::try_from(client_crypto)?));
-    config.transport_config(Arc::new(transport_config(datagram_buffer_bytes, tun_mtu)));
+    config.transport_config(Arc::new(transport_config(
+        datagram_buffer_bytes,
+        tun_mtu,
+        congestion_controller,
+    )));
     Ok(config)
 }
 
@@ -90,15 +100,23 @@ fn read_private_key(path: impl AsRef<Path>) -> Result<PrivateKeyDer<'static>> {
         .with_context(|| format!("no private key found in {}", path.display()))
 }
 
-fn transport_config(datagram_buffer_bytes: usize, tun_mtu: u16) -> TransportConfig {
+fn transport_config(
+    datagram_buffer_bytes: usize,
+    tun_mtu: u16,
+    congestion_controller: CongestionController,
+) -> TransportConfig {
     let mut transport = TransportConfig::default();
-    tune_transport(&mut transport, tun_mtu);
+    tune_transport(&mut transport, tun_mtu, congestion_controller);
     transport.datagram_receive_buffer_size(Some(datagram_buffer_bytes));
     transport.datagram_send_buffer_size(datagram_buffer_bytes);
     transport
 }
 
-fn tune_transport(transport: &mut TransportConfig, tun_mtu: u16) {
+fn tune_transport(
+    transport: &mut TransportConfig,
+    tun_mtu: u16,
+    congestion_controller: CongestionController,
+) {
     let quic_initial_mtu = tun_mtu.saturating_add(160).min(1452);
     transport
         .max_concurrent_bidi_streams(4_u8.into())
@@ -115,4 +133,11 @@ fn tune_transport(transport: &mut TransportConfig, tun_mtu: u16) {
         .send_window(8 * 1024 * 1024)
         .enable_segmentation_offload(true)
         .send_fairness(false);
+
+    match congestion_controller {
+        CongestionController::Cubic => {}
+        CongestionController::Bbr => {
+            transport.congestion_controller_factory(Arc::new(congestion::BbrConfig::default()));
+        }
+    }
 }

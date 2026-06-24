@@ -63,6 +63,7 @@ async fn main() -> Result<()> {
         &config.ca_cert_path,
         config.datagram_buffer_bytes,
         config.mtu,
+        config.congestion_controller,
     )?;
     let bind_addr: SocketAddr = if server_addr.is_ipv4() {
         "0.0.0.0:0".parse().unwrap()

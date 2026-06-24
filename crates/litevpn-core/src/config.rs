@@ -5,6 +5,14 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::{DEFAULT_DATAGRAM_BUFFER_BYTES, DEFAULT_MTU, MAX_MTU};
 
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CongestionController {
+    #[default]
+    Cubic,
+    Bbr,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ServerConfig {
@@ -21,6 +29,7 @@ pub struct ServerConfig {
     pub datagram_buffer_bytes: usize,
     pub enable_linux_offload: bool,
     pub tx_queue_len: Option<u32>,
+    pub congestion_controller: CongestionController,
 }
 
 impl Default for ServerConfig {
@@ -39,6 +48,7 @@ impl Default for ServerConfig {
             datagram_buffer_bytes: DEFAULT_DATAGRAM_BUFFER_BYTES,
             enable_linux_offload: false,
             tx_queue_len: Some(10_000),
+            congestion_controller: CongestionController::Cubic,
         }
     }
 }
@@ -71,6 +81,7 @@ pub struct ClientConfig {
     pub route_all: bool,
     pub dns: Vec<String>,
     pub datagram_buffer_bytes: usize,
+    pub congestion_controller: CongestionController,
 }
 
 impl Default for ClientConfig {
@@ -88,6 +99,7 @@ impl Default for ClientConfig {
             route_all: true,
             dns: vec!["1.1.1.1".to_string(), "8.8.8.8".to_string()],
             datagram_buffer_bytes: DEFAULT_DATAGRAM_BUFFER_BYTES,
+            congestion_controller: CongestionController::Cubic,
         }
     }
 }

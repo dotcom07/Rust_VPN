@@ -10,3 +10,4 @@ auth_token_path = "./config/client.token"
 route_all = true
 dns = ["1.1.1.1", "8.8.8.8"]
 datagram_buffer_bytes = 4194304
+congestion_controller = "cubic"

@@ -66,6 +66,7 @@ async fn main() -> Result<()> {
         &config.key_path,
         config.datagram_buffer_bytes,
         config.mtu,
+        config.congestion_controller,
     )?;
     let endpoint = Endpoint::server(server_config, listen)?;
     let active = Arc::new(Mutex::new(None));

@@ -11,3 +11,4 @@ external_interface = "ens3"
 datagram_buffer_bytes = 4194304
 enable_linux_offload = false
 tx_queue_len = 10000
+congestion_controller = "cubic"

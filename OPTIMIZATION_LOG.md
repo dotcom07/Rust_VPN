@@ -9,6 +9,7 @@ Server: `ubuntu@161.33.36.181`, OCI Osaka, `VM.Standard.E2.1.Micro`
 - QUIC initial MTU: `min(tun_mtu + 160, 1452)`
 - Benchmark payload: auto, capped by `connection.max_datagram_size()` and config MTU
 - Server kernel buffers: `rmem/wmem_max=16777216`, `rmem/wmem_default=1048576`, `netdev_max_backlog=4096`
+- Congestion controller: `cubic`
 - Server deployment: local Rust build, replace only `/usr/local/bin/litevpn-server`
 
 ## Why 1162 Is Selected
@@ -38,6 +39,9 @@ Commands:
 | Selected MTU 1162 | download | 1162 | 40.35 Mbps | 60,173,008 bytes / 10s | Selected |
 | MTU 1162 + kernel buffers | upload | 1162 | 39.91 Mbps | 47,316,640 bytes / 11s | Keep |
 | MTU 1162 + kernel buffers | download | 1162 | 45.68 Mbps | 70,992,390 bytes / 10s | Keep |
+| BBR experiment | upload | 1162 | 120.56 Mbps sent | 54,346,740 bytes / 11s | Not selected; sender overran buffers |
+| BBR experiment | download | 1162 | 40.08 Mbps | 72,476,264 bytes / 10s | Not selected |
+| Cubic revert spot check | download | 1162 | 48.58 Mbps | 48,293,882 bytes / 6s | Keep Cubic |
 
 ## Code Changes In This Iteration
 
@@ -47,10 +51,10 @@ Commands:
 - Raised QUIC transport initial MTU headroom while keeping the selected TUN MTU conservative.
 - Added datagram capacity checks before entering VPN mode to avoid silent oversized TUN packet drops.
 - Raised Linux UDP/socket buffer ceilings and defaults in `server-prepare.sh`.
+- Added configurable Quinn congestion control and tested BBR; kept Cubic for this path.
 
 ## Next Candidates
 
 - Add CPU/network counters around benchmarks: server `pidstat`, `sar`, `ss -u`, and Quinn connection stats if available.
-- Try Quinn congestion controller variants if exposed cleanly by the current Quinn version.
 - Tune Linux UDP socket buffers after checking whether Quinn's endpoint construction can use a preconfigured socket.
 - Compare against kernel WireGuard on the same OCI instance as the theoretical performance target.
