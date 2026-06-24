@@ -1,0 +1,13 @@
+listen = "0.0.0.0:443"
+tun_name = "tun0"
+tun_ip = "10.66.0.1"
+tun_prefix = 24
+client_ip = "10.66.0.2"
+mtu = 1200
+cert_path = "/etc/litevpn/server.crt"
+key_path = "/etc/litevpn/server.key"
+auth_token_path = "/etc/litevpn/client.token"
+external_interface = "ens3"
+datagram_buffer_bytes = 4194304
+enable_linux_offload = false
+tx_queue_len = 10000

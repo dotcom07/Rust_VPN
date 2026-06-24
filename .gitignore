@@ -1,0 +1,16 @@
+target/
+
+# Local secrets and machine-specific runtime config.
+config/client.toml
+config/server.toml
+config/*.crt
+config/*.key
+config/*.pem
+config/*.token
+
+# Local editor, OS, and runtime noise.
+.DS_Store
+*.log
+.env
+.env.*
+!.env.example

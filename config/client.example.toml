@@ -1,0 +1,12 @@
+server = "YOUR_SERVER_IP:443"
+server_name = "litevpn.local"
+tun_name = ""
+client_ip = "10.66.0.2"
+server_tun_ip = "10.66.0.1"
+tun_prefix = 24
+mtu = 1200
+ca_cert_path = "./config/server.crt"
+auth_token_path = "./config/client.token"
+route_all = true
+dns = ["1.1.1.1", "8.8.8.8"]
+datagram_buffer_bytes = 4194304
