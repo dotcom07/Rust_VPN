@@ -14,7 +14,7 @@ use litevpn_core::{
     tun::{TunOptions, create_tun},
 };
 use quinn::{Endpoint, EndpointConfig};
-use tokio::time::{Duration, Instant, sleep, sleep_until, timeout};
+use tokio::time::{Duration, Instant, sleep, sleep_until, timeout, timeout_at};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
@@ -40,7 +40,7 @@ struct Args {
     #[arg(long, default_value_t = 10)]
     connect_timeout_secs: u64,
 
-    #[arg(long, value_parser = ["upload", "download"])]
+    #[arg(long, value_parser = ["upload", "download", "stream-upload", "stream-download"])]
     bench: Option<String>,
 
     #[arg(long, default_value_t = 10)]
@@ -115,7 +115,8 @@ async fn main() -> Result<()> {
     .await?;
 
     let bench_payload_bytes = match bench_direction {
-        Some(_) => bench_payload_bytes(
+        Some(direction) => bench_payload_bytes(
+            direction,
             args.bench_payload_bytes,
             connection.max_datagram_size(),
             config.mtu as usize,
@@ -273,16 +274,23 @@ fn parse_bench_direction(value: &str) -> Result<BenchDirection> {
     match value {
         "upload" => Ok(BenchDirection::Upload),
         "download" => Ok(BenchDirection::Download),
-        _ => bail!("bench must be upload or download"),
+        "stream-upload" => Ok(BenchDirection::StreamUpload),
+        "stream-download" => Ok(BenchDirection::StreamDownload),
+        _ => bail!("bench must be upload, download, stream-upload, or stream-download"),
     }
 }
 
 fn bench_payload_bytes(
+    direction: BenchDirection,
     requested: usize,
     max_datagram_size: Option<usize>,
     config_mtu: usize,
 ) -> Result<usize> {
-    let max = max_datagram_size.unwrap_or(config_mtu).min(config_mtu);
+    let max = if direction.uses_datagrams() {
+        max_datagram_size.unwrap_or(config_mtu).min(config_mtu)
+    } else {
+        config_mtu
+    };
     if max < 64 {
         bail!("QUIC datagram payload limit is too small: {max} bytes");
     }
@@ -409,6 +417,19 @@ async fn run_bench(
         BenchDirection::Download => {
             run_download_bench(connection, duration_secs, payload_bytes, target_mbps).await
         }
+        BenchDirection::StreamUpload => {
+            run_stream_upload_bench(
+                connection,
+                duration_secs,
+                payload_bytes,
+                target_mbps,
+                adaptive_egress,
+            )
+            .await
+        }
+        BenchDirection::StreamDownload => {
+            run_stream_download_bench(connection, duration_secs, payload_bytes, target_mbps).await
+        }
     }
 }
 
@@ -522,6 +543,119 @@ async fn run_download_bench(
             }
         }
     }
+}
+
+async fn run_stream_upload_bench(
+    connection: &quinn::Connection,
+    duration_secs: u64,
+    payload_bytes: usize,
+    target_mbps: Option<u64>,
+    adaptive_egress: bool,
+) -> Result<BenchMeasurement> {
+    let payload = vec![0_u8; payload_bytes];
+    let mut stream = connection
+        .open_uni()
+        .await
+        .context("failed to open stream upload")?;
+    let started = Instant::now();
+    let deadline = started + Duration::from_secs(duration_secs);
+    let mut packets = 0_u64;
+    let mut bytes = 0_u64;
+    let mut pacer = EgressPacer::from_optional(target_mbps, payload_bytes, adaptive_egress);
+
+    loop {
+        if Instant::now() >= deadline {
+            break;
+        }
+        match timeout_at(deadline, stream.write(&payload)).await {
+            Ok(Ok(0)) => break,
+            Ok(Ok(n)) => {
+                packets += 1;
+                bytes += n as u64;
+                pacer.record_and_wait(n, Some(connection)).await;
+            }
+            Ok(Err(error)) => return Err(error.into()),
+            Err(_) => break,
+        }
+    }
+    stream.finish().context("failed to finish stream upload")?;
+
+    let elapsed = started.elapsed();
+    let summary = timeout(
+        Duration::from_secs(5),
+        read_bench_summary_stream(connection.clone()),
+    )
+    .await
+    .context("timed out waiting for stream bench summary")??;
+    print_local_bench(
+        "stream upload sent",
+        elapsed,
+        bytes,
+        packets,
+        payload_bytes,
+        target_mbps,
+    );
+    println!("client stats: {}", connection_stats_summary(connection));
+    println!("server {summary}");
+    sleep(Duration::from_millis(100)).await;
+    Ok(bench_measurement(
+        elapsed,
+        bytes,
+        packets,
+        parse_server_bench_measurement(&summary),
+    ))
+}
+
+async fn run_stream_download_bench(
+    connection: &quinn::Connection,
+    duration_secs: u64,
+    payload_bytes: usize,
+    target_mbps: Option<u64>,
+) -> Result<BenchMeasurement> {
+    let mut stream = connection
+        .accept_uni()
+        .await
+        .context("failed to accept stream download")?;
+    let started = Instant::now();
+    let deadline = started + Duration::from_secs(duration_secs + 5);
+    let mut buf = vec![0_u8; payload_bytes];
+    let mut packets = 0_u64;
+    let mut bytes = 0_u64;
+
+    loop {
+        match timeout_at(deadline, stream.read(&mut buf)).await {
+            Ok(Ok(Some(n))) => {
+                packets += 1;
+                bytes += n as u64;
+            }
+            Ok(Ok(None)) => break,
+            Ok(Err(error)) => return Err(error.into()),
+            Err(_) => bail!("timed out waiting for stream download"),
+        }
+    }
+
+    let summary = timeout(
+        Duration::from_secs(5),
+        read_bench_summary_stream(connection.clone()),
+    )
+    .await
+    .context("timed out waiting for stream bench summary")??;
+    print_local_bench(
+        "stream download received",
+        started.elapsed(),
+        bytes,
+        packets,
+        payload_bytes,
+        target_mbps,
+    );
+    println!("client stats: {}", connection_stats_summary(connection));
+    println!("server {summary}");
+    Ok(bench_measurement(
+        started.elapsed(),
+        bytes,
+        packets,
+        parse_server_bench_measurement(&summary),
+    ))
 }
 
 async fn read_bench_summary_stream(connection: quinn::Connection) -> Result<String> {

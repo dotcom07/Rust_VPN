@@ -252,6 +252,19 @@ async fn run_bench(
             )
             .await
         }
+        BenchDirection::StreamUpload => {
+            run_stream_upload_bench(connection, duration_secs, payload_bytes, target_mbps).await
+        }
+        BenchDirection::StreamDownload => {
+            run_stream_download_bench(
+                connection,
+                duration_secs,
+                payload_bytes,
+                target_mbps,
+                adaptive_egress,
+            )
+            .await
+        }
     }
 }
 
@@ -365,6 +378,113 @@ async fn run_download_bench(
         payload_bytes,
         elapsed_ms = started.elapsed().as_millis(),
         "download bench complete"
+    );
+    Ok(())
+}
+
+async fn run_stream_upload_bench(
+    connection: Connection,
+    duration_secs: u64,
+    payload_bytes: usize,
+    target_mbps: Option<u64>,
+) -> Result<()> {
+    let mut stream = connection
+        .accept_uni()
+        .await
+        .context("failed to accept stream upload")?;
+    let started = Instant::now();
+    let deadline = started + Duration::from_secs(duration_secs + 1);
+    let mut buf = vec![0_u8; payload_bytes];
+    let mut packets = 0_u64;
+    let mut bytes = 0_u64;
+
+    loop {
+        match timeout_at(deadline, stream.read(&mut buf)).await {
+            Ok(Ok(Some(n))) => {
+                packets += 1;
+                bytes += n as u64;
+            }
+            Ok(Ok(None)) => break,
+            Ok(Err(error)) => return Err(error.into()),
+            Err(_) => break,
+        }
+    }
+
+    send_bench_summary(
+        &connection,
+        "stream-upload",
+        started.elapsed(),
+        Duration::from_secs(duration_secs),
+        bytes,
+        packets,
+        payload_bytes,
+        target_mbps,
+    )
+    .await?;
+    info!(
+        bytes,
+        packets,
+        payload_bytes,
+        elapsed_ms = started.elapsed().as_millis(),
+        "stream upload bench complete"
+    );
+    Ok(())
+}
+
+async fn run_stream_download_bench(
+    connection: Connection,
+    duration_secs: u64,
+    payload_bytes: usize,
+    target_mbps: Option<u64>,
+    adaptive_egress: bool,
+) -> Result<()> {
+    let payload = vec![0_u8; payload_bytes];
+    let mut stream = connection
+        .open_uni()
+        .await
+        .context("failed to open stream download")?;
+    let started = Instant::now();
+    let deadline = started + Duration::from_secs(duration_secs);
+    let mut packets = 0_u64;
+    let mut bytes = 0_u64;
+    let mut pacer = EgressPacer::from_optional(target_mbps, payload_bytes, adaptive_egress);
+
+    loop {
+        if Instant::now() >= deadline {
+            break;
+        }
+        match timeout_at(deadline, stream.write(&payload)).await {
+            Ok(Ok(0)) => break,
+            Ok(Ok(n)) => {
+                packets += 1;
+                bytes += n as u64;
+                pacer.record_and_wait(n, Some(&connection)).await;
+            }
+            Ok(Err(error)) => return Err(error.into()),
+            Err(_) => break,
+        }
+    }
+    stream
+        .finish()
+        .context("failed to finish stream download")?;
+
+    send_bench_summary(
+        &connection,
+        "stream-download",
+        started.elapsed(),
+        started.elapsed(),
+        bytes,
+        packets,
+        payload_bytes,
+        target_mbps,
+    )
+    .await?;
+    info!(
+        bytes,
+        packets,
+        payload_bytes,
+        elapsed_ms = started.elapsed().as_millis(),
+        "stream download bench complete"
     );
     Ok(())
 }

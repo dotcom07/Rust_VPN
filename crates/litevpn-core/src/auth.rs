@@ -9,6 +9,23 @@ const MAX_AUTH_BYTES: usize = 1024;
 pub enum BenchDirection {
     Upload,
     Download,
+    StreamUpload,
+    StreamDownload,
+}
+
+impl BenchDirection {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Upload => "upload",
+            Self::Download => "download",
+            Self::StreamUpload => "stream-upload",
+            Self::StreamDownload => "stream-download",
+        }
+    }
+
+    pub fn uses_datagrams(self) -> bool {
+        matches!(self, Self::Upload | Self::Download)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,14 +65,13 @@ pub async fn client_authenticate_with_mode(
             payload_bytes,
             target_mbps,
         } => {
-            let direction = match direction {
-                BenchDirection::Upload => "upload",
-                BenchDirection::Download => "download",
-            };
             let target_mbps = target_mbps.unwrap_or(0);
             request.extend_from_slice(
-                format!("bench {direction} {duration_secs} {payload_bytes} {target_mbps}\n")
-                    .as_bytes(),
+                format!(
+                    "bench {} {duration_secs} {payload_bytes} {target_mbps}\n",
+                    direction.as_str()
+                )
+                .as_bytes(),
             );
         }
     }
@@ -133,7 +149,9 @@ fn parse_mode(line: &str) -> Result<AuthMode> {
     let direction = match parts.next() {
         Some("upload") => BenchDirection::Upload,
         Some("download") => BenchDirection::Download,
-        _ => bail!("bench direction must be upload or download"),
+        Some("stream-upload") => BenchDirection::StreamUpload,
+        Some("stream-download") => BenchDirection::StreamDownload,
+        _ => bail!("bench direction must be upload, download, stream-upload, or stream-download"),
     };
     let duration_secs = parts
         .next()
@@ -211,6 +229,24 @@ mod tests {
                     direction: BenchDirection::Upload,
                     duration_secs: 5,
                     payload_bytes: 1162,
+                    target_mbps: Some(40)
+                }
+            )
+        );
+    }
+
+    #[test]
+    fn parses_stream_bench_mode() {
+        let mut req = AUTH_MAGIC.to_vec();
+        req.extend_from_slice(b"abcdef\nbench stream-upload 5 1300 40\n");
+        assert_eq!(
+            parse_request(&req).unwrap(),
+            (
+                "abcdef",
+                AuthMode::Bench {
+                    direction: BenchDirection::StreamUpload,
+                    duration_secs: 5,
+                    payload_bytes: 1300,
                     target_mbps: Some(40)
                 }
             )

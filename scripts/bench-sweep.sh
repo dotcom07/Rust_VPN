@@ -18,6 +18,7 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
 Usage:
   DIRECTION=download TARGETS="30 34 38 40" scripts/bench-sweep.sh
   DIRECTION=upload TARGETS="10 12 13" scripts/bench-sweep.sh
+  DIRECTION=stream-upload TARGETS="20 40 80" scripts/bench-sweep.sh
 
 Environment:
   CONFIG=config/client.toml
@@ -34,9 +35,9 @@ HELP
 fi
 
 case "$DIRECTION" in
-  download|upload) ;;
+  download|upload|stream-download|stream-upload) ;;
   *)
-    echo "DIRECTION must be download or upload" >&2
+    echo "DIRECTION must be download, upload, stream-download, or stream-upload" >&2
     exit 1
     ;;
 esac
@@ -121,6 +122,19 @@ for target in $TARGETS; do
     local_avg_mbps="$(extract_field "$local_aggregate" "avg_mbps")"
     local_total_bytes="$(extract_field "$local_aggregate" "total_bytes")"
     local_total_packets="$(extract_field "$local_aggregate" "total_packets")"
+  else
+    case "$DIRECTION" in
+      upload) local_summary="$(grep '^upload sent:' "$log" | tail -1 || true)" ;;
+      download) local_summary="$(grep '^download received:' "$log" | tail -1 || true)" ;;
+      stream-upload) local_summary="$(grep '^stream upload sent:' "$log" | tail -1 || true)" ;;
+      stream-download) local_summary="$(grep '^stream download received:' "$log" | tail -1 || true)" ;;
+    esac
+    if [[ -n "${local_summary:-}" ]]; then
+      local_total_bytes="$(extract_field "$local_summary" "bytes")"
+      local_total_packets="$(extract_field "$local_summary" "packets")"
+      local_elapsed_ms="$(extract_field "$local_summary" "elapsed_ms")"
+      local_avg_mbps="$(awk -v bytes="$local_total_bytes" -v elapsed_ms="$local_elapsed_ms" 'BEGIN { if (elapsed_ms > 0) printf "%.2f", bytes * 8 / elapsed_ms / 1000 }')"
+    fi
   fi
 
   while IFS= read -r client_stats; do
@@ -169,17 +183,22 @@ for target in $TARGETS; do
     fi
   fi
 
-  if [[ "$status" == "ok" \
-    && "${lost_packets:-}" == "0" \
-    && "${congestion_events:-}" == "0" \
-    && "$client_lost_packets" == "0" \
-    && "$client_congestion_events" == "0" ]]; then
-    if [[ "$DIRECTION" == "upload" ]]; then
-      if [[ "$local_total_bytes" == "$total_bytes" && "$local_total_packets" == "$total_packets" ]]; then
+  if [[ "$status" == "ok" ]]; then
+    if [[ "$DIRECTION" == stream-* ]]; then
+      if [[ "$local_total_bytes" == "$total_bytes" ]]; then
         delivery_ok=1
       fi
-    elif [[ -z "$packet_gap" || "$packet_gap" -le 4 ]]; then
-      delivery_ok=1
+    elif [[ "${lost_packets:-}" == "0" \
+      && "${congestion_events:-}" == "0" \
+      && "$client_lost_packets" == "0" \
+      && "$client_congestion_events" == "0" ]]; then
+      if [[ "$DIRECTION" == "upload" ]]; then
+        if [[ "$local_total_bytes" == "$total_bytes" && "$local_total_packets" == "$total_packets" ]]; then
+          delivery_ok=1
+        fi
+      elif [[ -z "$packet_gap" || "$packet_gap" -le 4 ]]; then
+        delivery_ok=1
+      fi
     fi
   fi
 
@@ -197,12 +216,12 @@ cat "$SUMMARY"
 
 if [[ -n "$best_target" ]]; then
   echo
-  echo "selected_zero_loss_target_mbps=$best_target"
-  echo "selected_zero_loss_server_avg_mbps=$best_mbps"
+  echo "selected_delivery_ok_target_mbps=$best_target"
+  echo "selected_delivery_ok_server_avg_mbps=$best_mbps"
 else
   echo
-  echo "selected_zero_loss_target_mbps="
-  echo "no zero-loss target found" >&2
+  echo "selected_delivery_ok_target_mbps="
+  echo "no delivery-ok target found" >&2
 fi
 
 if [[ "$failures" -gt 0 ]]; then

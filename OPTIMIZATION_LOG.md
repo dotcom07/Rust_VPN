@@ -119,6 +119,8 @@ Commands:
 | Client adaptive rejection | upload | 1300 | 12 Mbps target: 9.37 Mbps local / 9.36 Mbps server; 13 Mbps target: 11.27 Mbps local / 11.26 Mbps server | 35,142,900 local bytes / 35,092,200 server bytes at 12 Mbps target | Existing client-side adaptive over-throttled under loss and still had delivery gaps; keep client adaptive disabled |
 | Low-rate adaptive prototype | upload | 1300 | 12 Mbps target: 12.01 Mbps local / 12.00 Mbps server; 13 Mbps target: 12.62 Mbps local / 12.57 Mbps server | 45,047,600 local bytes / 44,999,500 server bytes at 12 Mbps target | Gentler low-rate adaptive avoided over-throttling but still failed delivery gap/client-loss checks; code reverted |
 | Low-target upload check | upload | 1300 | 9.01 Mbps local / 9.00 Mbps server; 12.01 Mbps local / 11.95 Mbps server | 33,787,000 local bytes / 33,761,000 server bytes at 9 Mbps target | Even 9-12 Mbps static targets showed client loss or delivery gaps during RTT spikes; target selection alone is insufficient |
+| Stream upload diagnostic | stream-upload | 1300 | 13.01 Mbps local / 13.01 Mbps server; 20 target avg 19.07 Mbps; 40 target avg 29.20 Mbps | byte gap 0 for all targets | Reliable QUIC stream delivered all bytes despite path loss/retransmission; upload gaps are DATAGRAM-specific, not pure reachability |
+| Stream download diagnostic | stream-download | 1300 | 36 target avg 35.68 Mbps; 50 target avg 39.87 Mbps | byte gap 0 for all targets | Stream download can burst higher but suffers retransmission/RTT variance; selected DATAGRAM download 36 remains the stable VPN-mode target |
 | Paced MTU retest | download | 1350 | 37.82 Mbps | 47,548,350 bytes / 10s | 0 server loss, higher RTT |
 | Paced MTU retest | download | 1400 | 39.99 Mbps | 47,353,600 bytes / 10s | 0 server loss at 38 target, but edge-risk |
 | Paced MTU edge check | download | 1400 | failed | n/a | `datagram too large` at 45 Mbps target |
@@ -149,14 +151,16 @@ Commands:
 - Added `measured_elapsed_ms` to server benchmark summaries so upload server Mbps excludes the extra drain window.
 - Added `scripts/bench-selected.sh` to run the selected download/upload benchmarks with before/after server snapshots and local log capture.
 - Made benchmark DATAGRAM backlog waits deadline-aware so a congested download run still exits and reports a summary instead of hanging until the client times out.
-- Added `scripts/bench-sweep.sh` to automate target sweeps and record parsed aggregate results in CSV, selecting the highest zero-loss target from a run.
+- Added `scripts/bench-sweep.sh` to automate target sweeps and record parsed aggregate results in CSV, selecting the highest delivery-ok target from a run.
 - Tightened `scripts/bench-sweep.sh` selection to include local aggregate bytes, delivery gaps, and client-side QUIC loss/congestion. Server-only aggregates can hide DATAGRAM payload loss in the upload direction.
 - Added `adaptive_egress` pacing. Server-only adaptive pacing allowed the selected download target to rise from 34 Mbps to 36 Mbps while keeping upload static at 13 Mbps; client-side adaptive was rejected because it over-throttled upload.
 - Retested client-side adaptive after tightening delivery checks. A gentler low-rate adaptive prototype improved average send rate but still failed delivery-gap checks, so it was reverted.
+- Added `stream-upload` and `stream-download` benchmarks over reliable QUIC unidirectional streams, and opened four unidirectional streams in the transport config for diagnostics.
+- Stream diagnostics show the same path can deliver exact bytes above the DATAGRAM upload limit when reliability is provided by QUIC streams. This points away from OCI firewall/NIC loss and toward DATAGRAM reliability/queueing tradeoffs.
 
 ## Next Candidates
 
 - Run a sudo TUN-mode browser/fast.com smoke test from macOS when an interactive password is available.
-- Inspect QUIC ACK/MTU discovery settings that directly affect DATAGRAM behavior under loss.
 - Compare against kernel WireGuard on the same OCI instance as the theoretical performance target.
-- Prototype a reliable QUIC stream benchmark as a diagnostic only, to separate raw path loss from DATAGRAM-specific delivery loss before considering any stream-based VPN mode.
+- Inspect whether a stream-based VPN mode is acceptable despite head-of-line blocking, or keep DATAGRAM mode and add a tiny app-level repair/FEC layer for selected packet classes.
+- Inspect QUIC ACK/MTU discovery settings that directly affect DATAGRAM behavior under loss.

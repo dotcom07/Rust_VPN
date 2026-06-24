@@ -120,7 +120,7 @@ fn tune_transport(
     let quic_initial_mtu = tun_mtu.saturating_add(160).min(1452);
     transport
         .max_concurrent_bidi_streams(4_u8.into())
-        .max_concurrent_uni_streams(0_u8.into())
+        .max_concurrent_uni_streams(4_u8.into())
         .keep_alive_interval(Some(Duration::from_secs(5)))
         .max_idle_timeout(Some(
             Duration::from_secs(30)
