@@ -78,11 +78,11 @@ cleanup() {
 }
 
 start_iperf_server() {
-  remote "pkill iperf3 >/dev/null 2>&1 || true; rm -f '$REMOTE_IPERF_LOG'; nohup iperf3 -s -B '$SERVER_TUN_IP' -p '$IPERF_PORT' -1 >'$REMOTE_IPERF_LOG' 2>&1 &"
+  remote "pkill iperf3 >/dev/null 2>&1 || true; rm -f '$REMOTE_IPERF_LOG'; iperf3 -s -D -p '$IPERF_PORT' -1 --logfile '$REMOTE_IPERF_LOG'"
 
   local attempts=$((IPERF_READY_TIMEOUT_SECS * 5))
   while [[ "$attempts" -gt 0 ]]; do
-    if remote "ss -ltn sport = :$IPERF_PORT | grep -q ':$IPERF_PORT'"; then
+    if remote "ss -ltn | awk '{ print \$4 }' | grep -q ':$IPERF_PORT\$'"; then
       return
     fi
     attempts=$((attempts - 1))
