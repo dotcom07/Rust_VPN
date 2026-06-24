@@ -128,6 +128,7 @@ Commands:
 | Upload stability resweep | upload | 1300 | selected `13.03 Mbps` in 5s x2 sweep | 9-12 Mbps had transient client loss or byte gaps; 13 Mbps had byte gap 0 and loss/congestion 0 in this sweep | Keep upload target `13 Mbps`; path variance means selected bench failures should be followed by a target sweep before changing defaults |
 | Stream packet benchmark | stream-packet | 1300 | upload: `40.07 Mbps` clean in 5s x2, `60`/`80` targets delivered about `52`/`52 Mbps` with heavy retransmission; download: `36 Mbps` stable, `50` target delivered `43.41 Mbps` with high retransmission; post-change DATAGRAM sanity: `36.06/13.04 Mbps` | byte gap 0 for packet-mode stream tests; DATAGRAM sanity loss/congestion 0 | Added length-prefixed stream packet benchmarks matching `vpn_transport = "stream"` framing and made framed writes non-cancellable mid-packet; stream remains a strong upload candidate but needs full TUN latency testing |
 | Transport preset switch | config | 1300 | local temp stream preset: client `40 Mbps`, datagram preset: client `13 Mbps`; remote datagram preset kept server `36 Mbps` active; post-restart selected bench held `36/13 Mbps` but still showed transient DATAGRAM delivery gaps | server remained active with `vpn_transport = "datagram"` | `scripts/set-vpn-transport.sh` now applies tested egress/adaptive presets by transport so stream-mode tests are not accidentally capped by DATAGRAM client upload pacing |
+| TUN smoke wrapper | workflow | 1300 | `scripts/run-tun-smoke.sh --help` and shell syntax validated | wrapper restores DATAGRAM on exit by default | Added an interactive macOS wrapper that switches transport/presets, starts the sudo TUN client, and restores DATAGRAM after Fast.com/browser testing |
 | Paced MTU retest | download | 1350 | 37.82 Mbps | 47,548,350 bytes / 10s | 0 server loss, higher RTT |
 | Paced MTU retest | download | 1400 | 39.99 Mbps | 47,353,600 bytes / 10s | 0 server loss at 38 target, but edge-risk |
 | Paced MTU edge check | download | 1400 | failed | n/a | `datagram too large` at 45 Mbps target |
@@ -172,6 +173,7 @@ Commands:
 - Added `stream-packet-upload` and `stream-packet-download` benchmarks that use the same length-prefixed packet framing as experimental stream VPN mode.
 - Coalesced stream packet writes into one framed write and avoided cancelling framed writes mid-packet, fixing `stream ended mid-frame` failures at aggressive upload targets.
 - Updated `scripts/set-vpn-transport.sh` to apply tested transport pacing presets by default: DATAGRAM client/server `13/36 Mbps`, stream client/server `40/36 Mbps`; use `APPLY_PRESETS=0` for transport-only changes.
+- Added `scripts/run-tun-smoke.sh` to run interactive macOS TUN smoke tests for `datagram` or `stream` and automatically restore the selected DATAGRAM preset on exit.
 
 ## Next Candidates
 

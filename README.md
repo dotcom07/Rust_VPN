@@ -100,6 +100,14 @@ By default this also applies the tested pacing presets: DATAGRAM uses client
 `13 Mbps` and server `36 Mbps`; stream uses client `40 Mbps` and server
 `36 Mbps`. Set `APPLY_PRESETS=0` to change only `vpn_transport`.
 
+For an interactive macOS TUN smoke test, use the wrapper below. It switches the
+client and server, starts the local client with `sudo`, and restores DATAGRAM
+when the client exits:
+
+```bash
+MODE=stream HOST=ubuntu@YOUR_SERVER_IP KEY=~/.ssh/your_oci_key scripts/run-tun-smoke.sh
+```
+
 Server runtime/network snapshot:
 
 ```bash
