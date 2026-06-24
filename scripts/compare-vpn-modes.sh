@@ -386,4 +386,5 @@ done
 echo
 echo "comparison logs: $COMPARE_DIR"
 echo "comparison summary: $SUMMARY"
+echo "comparison report: $ROOT/scripts/summarize-vpn-comparison.sh \"$COMPARE_DIR\""
 cat "$SUMMARY"

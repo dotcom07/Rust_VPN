@@ -164,6 +164,12 @@ a combined `summary.csv` for quick WireGuard vs LiteVPN comparison.
 With `FASTCOM_PAUSE=1`, per-mode Fast.com note templates are written as
 `fastcom.md` beside the iperf logs.
 
+Generate a Markdown comparison report and recommendation from the latest run:
+
+```bash
+scripts/summarize-vpn-comparison.sh
+```
+
 Server runtime/network snapshot:
 
 ```bash

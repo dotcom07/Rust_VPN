@@ -186,6 +186,7 @@ Commands:
 - Added `scripts/compare-vpn-modes.sh --preflight` to verify local tools/config and remote WireGuard/LiteVPN prerequisites before asking for local `sudo`.
 - Added `FASTCOM_PAUSE=1` for `scripts/compare-vpn-modes.sh` so each VPN mode can stay up long enough to capture browser Fast.com loaded-latency numbers into per-mode notes.
 - Added explicit CLI mode flags: `scripts/run-vpn-mode.sh --mode wireguard|litevpn` and repeated `scripts/compare-vpn-modes.sh --mode ...`, while keeping the existing environment-variable workflow.
+- Added `scripts/summarize-vpn-comparison.sh` to turn `summary.csv` plus optional Fast.com notes into `comparison.md` with a clear recommendation score.
 
 ## Next Candidates
 
