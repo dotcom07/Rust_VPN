@@ -58,7 +58,7 @@ SWEEP_DIR="$ROOT/$OUT_DIR/sweep-$DIRECTION-$STAMP"
 SUMMARY="$SWEEP_DIR/summary.csv"
 mkdir -p "$SWEEP_DIR"
 
-echo "direction,target_mbps,status,server_avg_mbps,server_min_mbps,server_max_mbps,lost_packets,congestion_events,total_bytes,total_packets,total_elapsed_ms,log" > "$SUMMARY"
+echo "direction,target_mbps,status,local_avg_mbps,server_avg_mbps,local_total_bytes,server_total_bytes,byte_gap,client_lost_packets,client_congestion_events,server_lost_packets,server_congestion_events,delivery_ok,log" > "$SUMMARY"
 
 extract_field() {
   local line="$1"
@@ -99,6 +99,10 @@ for target in $TARGETS; do
   fi
 
   aggregate="$(grep 'bench aggregate server:' "$log" | tail -1 || true)"
+  local_aggregate="$(grep 'bench aggregate local:' "$log" | tail -1 || true)"
+  local_avg_mbps=""
+  local_total_bytes=""
+  local_total_packets=""
   avg_mbps=""
   min_mbps=""
   max_mbps=""
@@ -107,6 +111,24 @@ for target in $TARGETS; do
   total_bytes=""
   total_packets=""
   total_elapsed_ms=""
+  client_lost_packets=0
+  client_congestion_events=0
+  byte_gap=""
+  packet_gap=""
+  delivery_ok=0
+
+  if [[ -n "$local_aggregate" ]]; then
+    local_avg_mbps="$(extract_field "$local_aggregate" "avg_mbps")"
+    local_total_bytes="$(extract_field "$local_aggregate" "total_bytes")"
+    local_total_packets="$(extract_field "$local_aggregate" "total_packets")"
+  fi
+
+  while IFS= read -r client_stats; do
+    lost="$(extract_field "$client_stats" "lost_packets")"
+    congestion="$(extract_field "$client_stats" "congestion_events")"
+    client_lost_packets=$((client_lost_packets + ${lost:-0}))
+    client_congestion_events=$((client_congestion_events + ${congestion:-0}))
+  done < <(grep '^client stats:' "$log" || true)
 
   if [[ -n "$aggregate" ]]; then
     avg_mbps="$(extract_field "$aggregate" "avg_mbps")"
@@ -134,9 +156,36 @@ for target in $TARGETS; do
     fi
   fi
 
-  echo "$DIRECTION,$target,$status,$avg_mbps,$min_mbps,$max_mbps,$lost_packets,$congestion_events,$total_bytes,$total_packets,$total_elapsed_ms,$log" >> "$SUMMARY"
+  if [[ -n "$local_total_bytes" && -n "$total_bytes" ]]; then
+    byte_gap=$((local_total_bytes - total_bytes))
+    if [[ "$byte_gap" -lt 0 ]]; then
+      byte_gap=$((-byte_gap))
+    fi
+  fi
+  if [[ -n "$local_total_packets" && -n "$total_packets" ]]; then
+    packet_gap=$((local_total_packets - total_packets))
+    if [[ "$packet_gap" -lt 0 ]]; then
+      packet_gap=$((-packet_gap))
+    fi
+  fi
 
-  if [[ "$status" == "ok" && "${lost_packets:-}" == "0" && "${congestion_events:-}" == "0" ]]; then
+  if [[ "$status" == "ok" \
+    && "${lost_packets:-}" == "0" \
+    && "${congestion_events:-}" == "0" \
+    && "$client_lost_packets" == "0" \
+    && "$client_congestion_events" == "0" ]]; then
+    if [[ "$DIRECTION" == "upload" ]]; then
+      if [[ "$local_total_bytes" == "$total_bytes" && "$local_total_packets" == "$total_packets" ]]; then
+        delivery_ok=1
+      fi
+    elif [[ -z "$packet_gap" || "$packet_gap" -le 4 ]]; then
+      delivery_ok=1
+    fi
+  fi
+
+  echo "$DIRECTION,$target,$status,$local_avg_mbps,$avg_mbps,$local_total_bytes,$total_bytes,$byte_gap,$client_lost_packets,$client_congestion_events,$lost_packets,$congestion_events,$delivery_ok,$log" >> "$SUMMARY"
+
+  if [[ "$delivery_ok" == "1" ]]; then
     best_target="$target"
     best_mbps="$avg_mbps"
   fi
