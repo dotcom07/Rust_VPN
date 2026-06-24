@@ -10,6 +10,7 @@ Server: `ubuntu@161.33.36.181`, OCI Osaka, `VM.Standard.E2.1.Micro`
 - Benchmark payload: auto, capped by `connection.max_datagram_size()` and config MTU
 - Server kernel buffers: `rmem/wmem_max=16777216`, `rmem/wmem_default=1048576`, `netdev_max_backlog=4096`
 - Congestion controller: `cubic`
+- Explicit UDP socket buffers: disabled (`0`, OS default)
 - Server deployment: local Rust build, replace only `/usr/local/bin/litevpn-server`
 
 ## Why 1162 Is Selected
@@ -42,6 +43,10 @@ Commands:
 | BBR experiment | upload | 1162 | 120.56 Mbps sent | 54,346,740 bytes / 11s | Not selected; sender overran buffers |
 | BBR experiment | download | 1162 | 40.08 Mbps | 72,476,264 bytes / 10s | Not selected |
 | Cubic revert spot check | download | 1162 | 48.58 Mbps | 48,293,882 bytes / 6s | Keep Cubic |
+| Explicit socket buffers 4MiB | upload | 1162 | 39.76 Mbps | 41,840,134 bytes / 11s | Not selected |
+| Explicit socket buffers 4MiB | download | 1162 | 26.29 Mbps | 43,611,022 bytes / 10s | Not selected |
+| Socket buffers reverted to OS default | download | 1162 | 40.90 Mbps | 40,717,642 bytes / 6s | Keep |
+| Socket buffers reverted to OS default | upload | 1162 | 46.64 Mbps | 56,516,194 bytes / 11s | Keep |
 
 ## Code Changes In This Iteration
 
@@ -52,6 +57,7 @@ Commands:
 - Added datagram capacity checks before entering VPN mode to avoid silent oversized TUN packet drops.
 - Raised Linux UDP/socket buffer ceilings and defaults in `server-prepare.sh`.
 - Added configurable Quinn congestion control and tested BBR; kept Cubic for this path.
+- Added explicit UDP socket buffer controls and tested 4MiB; kept OS default because throughput regressed.
 
 ## Next Candidates
 

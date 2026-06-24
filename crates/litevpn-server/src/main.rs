@@ -14,10 +14,10 @@ use litevpn_core::{
     auth::{AuthMode, BenchDirection, server_authenticate},
     config::{ServerConfig, load_token, load_toml},
     crypto,
-    quic::{ensure_datagram_capacity, pump_quic_to_tun, pump_tun_to_quic},
+    quic::{create_udp_socket, ensure_datagram_capacity, pump_quic_to_tun, pump_tun_to_quic},
     tun::{TunDevice, TunOptions, create_tun},
 };
-use quinn::{Connection, Endpoint};
+use quinn::{Connection, Endpoint, EndpointConfig};
 use tokio::sync::Mutex;
 use tokio::time::{Duration, Instant, sleep, sleep_until, timeout, timeout_at};
 use tracing::{error, info, warn};
@@ -68,7 +68,18 @@ async fn main() -> Result<()> {
         config.mtu,
         config.congestion_controller,
     )?;
-    let endpoint = Endpoint::server(server_config, listen)?;
+    let socket = create_udp_socket(
+        listen,
+        config.udp_recv_buffer_bytes,
+        config.udp_send_buffer_bytes,
+    )?;
+    let runtime = quinn::default_runtime().context("no async runtime found")?;
+    let endpoint = Endpoint::new(
+        EndpointConfig::default(),
+        Some(server_config),
+        socket,
+        runtime,
+    )?;
     let active = Arc::new(Mutex::new(None));
     let next_client_id = Arc::new(AtomicU64::new(1));
 

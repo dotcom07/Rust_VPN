@@ -24,6 +24,7 @@ rustls = "0.23"
 rustls-pemfile = "2.2"
 rustls-pki-types = "1.13"
 serde = { version = "1.0", features = ["derive"] }
+socket2 = "0.6"
 tokio = { version = "1.48", features = ["macros", "rt-multi-thread", "signal", "process", "time"] }
 toml = "0.9"
 tracing = "0.1"

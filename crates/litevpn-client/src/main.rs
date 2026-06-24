@@ -7,10 +7,10 @@ use litevpn_core::{
     auth::{AuthMode, BenchDirection, client_authenticate_with_mode},
     config::{ClientConfig, load_token, load_toml},
     crypto,
-    quic::{ensure_datagram_capacity, pump_quic_to_tun, pump_tun_to_quic},
+    quic::{create_udp_socket, ensure_datagram_capacity, pump_quic_to_tun, pump_tun_to_quic},
     tun::{TunOptions, create_tun},
 };
-use quinn::Endpoint;
+use quinn::{Endpoint, EndpointConfig};
 use tokio::time::{Duration, Instant, sleep, sleep_until, timeout};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
@@ -70,7 +70,13 @@ async fn main() -> Result<()> {
     } else {
         "[::]:0".parse().unwrap()
     };
-    let mut endpoint = Endpoint::client(bind_addr)?;
+    let socket = create_udp_socket(
+        bind_addr,
+        config.udp_recv_buffer_bytes,
+        config.udp_send_buffer_bytes,
+    )?;
+    let runtime = quinn::default_runtime().context("no async runtime found")?;
+    let mut endpoint = Endpoint::new(EndpointConfig::default(), None, socket, runtime)?;
     endpoint.set_default_client_config(client_config);
 
     info!(server = %server_addr, server_name = %config.server_name, "connecting");

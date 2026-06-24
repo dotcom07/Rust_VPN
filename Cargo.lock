@@ -744,6 +744,7 @@ dependencies = [
  "rustls-pemfile",
  "rustls-pki-types",
  "serde",
+ "socket2",
  "tokio",
  "toml",
  "tracing",

@@ -3,7 +3,7 @@ use std::{fs, net::Ipv4Addr, path::Path, path::PathBuf};
 use anyhow::{Context, Result, anyhow, bail};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use crate::{DEFAULT_DATAGRAM_BUFFER_BYTES, DEFAULT_MTU, MAX_MTU};
+use crate::{DEFAULT_DATAGRAM_BUFFER_BYTES, DEFAULT_MTU, DEFAULT_UDP_SOCKET_BUFFER_BYTES, MAX_MTU};
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -30,6 +30,8 @@ pub struct ServerConfig {
     pub enable_linux_offload: bool,
     pub tx_queue_len: Option<u32>,
     pub congestion_controller: CongestionController,
+    pub udp_recv_buffer_bytes: usize,
+    pub udp_send_buffer_bytes: usize,
 }
 
 impl Default for ServerConfig {
@@ -49,6 +51,8 @@ impl Default for ServerConfig {
             enable_linux_offload: false,
             tx_queue_len: Some(10_000),
             congestion_controller: CongestionController::Cubic,
+            udp_recv_buffer_bytes: DEFAULT_UDP_SOCKET_BUFFER_BYTES,
+            udp_send_buffer_bytes: DEFAULT_UDP_SOCKET_BUFFER_BYTES,
         }
     }
 }
@@ -56,6 +60,7 @@ impl Default for ServerConfig {
 impl ServerConfig {
     pub fn validate(&self) -> Result<()> {
         validate_common(self.mtu, self.tun_prefix, self.datagram_buffer_bytes)?;
+        validate_udp_socket_buffers(self.udp_recv_buffer_bytes, self.udp_send_buffer_bytes)?;
         if self.tun_name.trim().is_empty() {
             bail!("server tun_name must not be empty");
         }
@@ -82,6 +87,8 @@ pub struct ClientConfig {
     pub dns: Vec<String>,
     pub datagram_buffer_bytes: usize,
     pub congestion_controller: CongestionController,
+    pub udp_recv_buffer_bytes: usize,
+    pub udp_send_buffer_bytes: usize,
 }
 
 impl Default for ClientConfig {
@@ -100,6 +107,8 @@ impl Default for ClientConfig {
             dns: vec!["1.1.1.1".to_string(), "8.8.8.8".to_string()],
             datagram_buffer_bytes: DEFAULT_DATAGRAM_BUFFER_BYTES,
             congestion_controller: CongestionController::Cubic,
+            udp_recv_buffer_bytes: DEFAULT_UDP_SOCKET_BUFFER_BYTES,
+            udp_send_buffer_bytes: DEFAULT_UDP_SOCKET_BUFFER_BYTES,
         }
     }
 }
@@ -107,6 +116,7 @@ impl Default for ClientConfig {
 impl ClientConfig {
     pub fn validate(&self) -> Result<()> {
         validate_common(self.mtu, self.tun_prefix, self.datagram_buffer_bytes)?;
+        validate_udp_socket_buffers(self.udp_recv_buffer_bytes, self.udp_send_buffer_bytes)?;
         if self.server.trim().is_empty() {
             bail!("server must not be empty");
         }
@@ -129,6 +139,19 @@ fn validate_common(mtu: u16, prefix: u8, datagram_buffer_bytes: usize) -> Result
     }
     if datagram_buffer_bytes < 64 * 1024 {
         bail!("datagram_buffer_bytes is too small");
+    }
+    Ok(())
+}
+
+pub fn validate_udp_socket_buffers(
+    recv_buffer_bytes: usize,
+    send_buffer_bytes: usize,
+) -> Result<()> {
+    if recv_buffer_bytes != 0 && recv_buffer_bytes < 64 * 1024 {
+        bail!("udp_recv_buffer_bytes must be 0 or >= 65536");
+    }
+    if send_buffer_bytes != 0 && send_buffer_bytes < 64 * 1024 {
+        bail!("udp_send_buffer_bytes must be 0 or >= 65536");
     }
     Ok(())
 }

@@ -1,8 +1,39 @@
-use anyhow::{Result, bail};
+use std::net::{SocketAddr, UdpSocket};
+
+use anyhow::{Context, Result, bail};
 use bytes::Bytes;
 use quinn::Connection;
+use socket2::{Domain, Protocol, Socket, Type};
 use tracing::{debug, trace};
 use tun_rs::AsyncDevice;
+
+pub fn create_udp_socket(
+    addr: SocketAddr,
+    recv_buffer_bytes: usize,
+    send_buffer_bytes: usize,
+) -> Result<UdpSocket> {
+    let socket = Socket::new(Domain::for_address(addr), Type::DGRAM, Some(Protocol::UDP))
+        .context("failed to create UDP socket")?;
+    if addr.is_ipv6() {
+        if let Err(error) = socket.set_only_v6(false) {
+            debug!(%error, "unable to make UDP socket dual-stack");
+        }
+    }
+    if recv_buffer_bytes > 0 {
+        socket
+            .set_recv_buffer_size(recv_buffer_bytes)
+            .context("failed to set UDP receive buffer size")?;
+    }
+    if send_buffer_bytes > 0 {
+        socket
+            .set_send_buffer_size(send_buffer_bytes)
+            .context("failed to set UDP send buffer size")?;
+    }
+    socket
+        .bind(&addr.into())
+        .with_context(|| format!("failed to bind UDP socket to {addr}"))?;
+    Ok(socket.into())
+}
 
 pub fn ensure_datagram_capacity(
     connection: &Connection,

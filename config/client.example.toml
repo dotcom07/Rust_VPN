@@ -11,3 +11,5 @@ route_all = true
 dns = ["1.1.1.1", "8.8.8.8"]
 datagram_buffer_bytes = 4194304
 congestion_controller = "cubic"
+udp_recv_buffer_bytes = 0
+udp_send_buffer_bytes = 0

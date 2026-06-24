@@ -11,3 +11,4 @@ pub const AUTH_ERR: &[u8] = b"ERR\n";
 pub const DEFAULT_MTU: u16 = 1162;
 pub const MAX_MTU: u16 = 1400;
 pub const DEFAULT_DATAGRAM_BUFFER_BYTES: usize = 4 * 1024 * 1024;
+pub const DEFAULT_UDP_SOCKET_BUFFER_BYTES: usize = 0;
