@@ -96,6 +96,10 @@ MODE=stream HOST=ubuntu@YOUR_SERVER_IP KEY=~/.ssh/your_oci_key scripts/set-vpn-t
 MODE=datagram HOST=ubuntu@YOUR_SERVER_IP KEY=~/.ssh/your_oci_key scripts/set-vpn-transport.sh
 ```
 
+By default this also applies the tested pacing presets: DATAGRAM uses client
+`13 Mbps` and server `36 Mbps`; stream uses client `40 Mbps` and server
+`36 Mbps`. Set `APPLY_PRESETS=0` to change only `vpn_transport`.
+
 Server runtime/network snapshot:
 
 ```bash
