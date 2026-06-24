@@ -21,12 +21,14 @@ usage() {
 Usage:
   scripts/run-vpn-mode.sh --mode wireguard
   scripts/run-vpn-mode.sh --mode litevpn
+  scripts/run-vpn-mode.sh --mode off
   MODE=wireguard HOST=ubuntu@161.33.36.181 KEY=/Users/sungje/.ssh/oracle_oci_ed25519 scripts/run-vpn-mode.sh
   MODE=litevpn   HOST=ubuntu@161.33.36.181 KEY=/Users/sungje/.ssh/oracle_oci_ed25519 scripts/run-vpn-mode.sh
 
 Modes:
   wireguard  Stop the remote LiteVPN service, start remote wg0, then run local wg-quick.
   litevpn    Stop remote wg0, start remote LiteVPN service, then run the local LiteVPN client.
+  off        Stop local VPN routes/processes, stop remote wg0, and restore remote LiteVPN.
 
 Environment:
   RESTORE_LITEVPN=1  Restore remote LiteVPN and stop remote wg0 when this script exits.
@@ -56,7 +58,7 @@ while [[ $# -gt 0 ]]; do
       MODE="${1#*=}"
       shift
       ;;
-    wireguard|litevpn)
+    wireguard|litevpn|off)
       MODE="$1"
       shift
       ;;
@@ -129,8 +131,22 @@ case "$MODE" in
       --connect-retries "$LITEVPN_CONNECT_RETRIES" \
       --connect-retry-delay-ms "$LITEVPN_CONNECT_RETRY_DELAY_MS"
     ;;
+  off)
+    if [[ -z "$WG_QUICK_BIN" ]] && command -v wg-quick >/dev/null 2>&1; then
+      WG_QUICK_BIN="$(command -v wg-quick)"
+    fi
+    echo "Checking local sudo before cleaning local VPN state."
+    sudo -v
+    if [[ -n "$WG_QUICK_BIN" && -f "$WG_CONF" ]]; then
+      sudo "$WG_QUICK_BIN" down "$WG_CONF" >/dev/null 2>&1 || true
+    fi
+    sudo pkill -f litevpn-client >/dev/null 2>&1 || true
+    sudo "$ROOT/target/release/litevpn-client" --config "$LITEVPN_CONFIG" --cleanup-routes >/dev/null 2>&1 || true
+    restore_litevpn
+    echo "VPN is off locally. Remote LiteVPN is restored."
+    ;;
   *)
-    echo "MODE must be wireguard or litevpn" >&2
+    echo "MODE must be wireguard, litevpn, or off" >&2
     usage >&2
     exit 1
     ;;

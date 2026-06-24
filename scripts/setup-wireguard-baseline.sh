@@ -99,7 +99,7 @@ PrivateKey = $SERVER_PRIVATE_KEY
 Address = $SERVER_WG_IP/24
 ListenPort = $WG_PORT
 MTU = $WG_MTU
-PostUp = sysctl -w net.ipv4.ip_forward=1; iptables -t nat -C POSTROUTING -s $WG_CIDR -o $SERVER_IFACE -j MASQUERADE 2>/dev/null || iptables -t nat -A POSTROUTING -s $WG_CIDR -o $SERVER_IFACE -j MASQUERADE; iptables -C FORWARD -i %i -o $SERVER_IFACE -j ACCEPT 2>/dev/null || iptables -A FORWARD -i %i -o $SERVER_IFACE -j ACCEPT; iptables -C FORWARD -i $SERVER_IFACE -o %i -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || iptables -A FORWARD -i $SERVER_IFACE -o %i -m state --state RELATED,ESTABLISHED -j ACCEPT
+PostUp = sysctl -w net.ipv4.ip_forward=1; iptables -t nat -C POSTROUTING -s $WG_CIDR -o $SERVER_IFACE -j MASQUERADE 2>/dev/null || iptables -t nat -A POSTROUTING -s $WG_CIDR -o $SERVER_IFACE -j MASQUERADE; iptables -C FORWARD -i %i -o $SERVER_IFACE -j ACCEPT 2>/dev/null || iptables -I FORWARD 1 -i %i -o $SERVER_IFACE -j ACCEPT; iptables -C FORWARD -i $SERVER_IFACE -o %i -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || iptables -I FORWARD 1 -i $SERVER_IFACE -o %i -m state --state RELATED,ESTABLISHED -j ACCEPT
 PostDown = iptables -t nat -D POSTROUTING -s $WG_CIDR -o $SERVER_IFACE -j MASQUERADE 2>/dev/null || true; iptables -D FORWARD -i %i -o $SERVER_IFACE -j ACCEPT 2>/dev/null || true; iptables -D FORWARD -i $SERVER_IFACE -o %i -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || true
 
 [Peer]
