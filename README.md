@@ -170,6 +170,12 @@ Generate a Markdown comparison report and recommendation from the latest run:
 scripts/summarize-vpn-comparison.sh
 ```
 
+Sweep WireGuard MTU candidates before choosing the WireGuard baseline:
+
+```bash
+MTUS="1280 1380 1420" HOST=ubuntu@YOUR_SERVER_IP KEY=~/.ssh/your_oci_key scripts/sweep-wireguard-mtu.sh
+```
+
 Server runtime/network snapshot:
 
 ```bash

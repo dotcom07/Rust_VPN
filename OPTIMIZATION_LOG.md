@@ -187,6 +187,7 @@ Commands:
 - Added `FASTCOM_PAUSE=1` for `scripts/compare-vpn-modes.sh` so each VPN mode can stay up long enough to capture browser Fast.com loaded-latency numbers into per-mode notes.
 - Added explicit CLI mode flags: `scripts/run-vpn-mode.sh --mode wireguard|litevpn` and repeated `scripts/compare-vpn-modes.sh --mode ...`, while keeping the existing environment-variable workflow.
 - Added `scripts/summarize-vpn-comparison.sh` to turn `summary.csv` plus optional Fast.com notes into `comparison.md` with a clear recommendation score.
+- Added `scripts/sweep-wireguard-mtu.sh` to reinstall WireGuard with MTU candidates, run WireGuard-only comparisons, summarize each run, and recommend the best WireGuard MTU baseline.
 
 ## Next Candidates
 
