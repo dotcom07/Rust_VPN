@@ -159,7 +159,12 @@ async fn main() -> Result<()> {
     })
     .context("failed to create client tun device")?;
     let device_name = device.name().unwrap_or_else(|_| config.tun_name.clone());
-    info!(tun = %device_name, mtu = config.mtu, "client tun ready");
+    info!(
+        tun = %device_name,
+        mtu = config.mtu,
+        egress_target_mbps = config.egress_target_mbps,
+        "client tun ready"
+    );
 
     #[cfg(target_os = "macos")]
     let mut routes = if config.route_all && !args.no_routes {
@@ -174,7 +179,13 @@ async fn main() -> Result<()> {
     }
 
     let device = Arc::new(device);
-    let up = pump_tun_to_quic(&device, connection.clone(), config.mtu as usize, "client");
+    let up = pump_tun_to_quic(
+        &device,
+        connection.clone(),
+        config.mtu as usize,
+        "client",
+        config.egress_target_mbps,
+    );
     let down = pump_quic_to_tun(&device, connection.clone(), "client");
 
     tokio::select! {

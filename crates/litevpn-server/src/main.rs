@@ -91,6 +91,7 @@ async fn main() -> Result<()> {
         tun = %device_name,
         mtu = config.mtu,
         external_interface = %config.external_interface,
+        egress_target_mbps = config.egress_target_mbps,
         "litevpn server ready"
     );
 
@@ -104,6 +105,7 @@ async fn main() -> Result<()> {
         let active = Arc::clone(&active);
         let next_client_id = Arc::clone(&next_client_id);
         let mtu = config.mtu as usize;
+        let egress_target_mbps = config.egress_target_mbps;
 
         tokio::spawn(async move {
             let mut client_id = None;
@@ -112,6 +114,7 @@ async fn main() -> Result<()> {
                 device,
                 token,
                 mtu,
+                egress_target_mbps,
                 active.clone(),
                 next_client_id,
                 &mut client_id,
@@ -141,6 +144,7 @@ async fn handle_connection(
     device: Arc<TunDevice>,
     token: String,
     mtu: usize,
+    egress_target_mbps: u64,
     active: Arc<Mutex<Option<ActiveClient>>>,
     next_client_id: Arc<AtomicU64>,
     client_id: &mut Option<u64>,
@@ -195,7 +199,13 @@ async fn handle_connection(
             .close(0_u32.into(), b"replaced by new authenticated client");
     }
 
-    let up = pump_tun_to_quic(&device, connection.clone(), mtu, "server");
+    let up = pump_tun_to_quic(
+        &device,
+        connection.clone(),
+        mtu,
+        "server",
+        egress_target_mbps,
+    );
     let down = pump_quic_to_tun(&device, connection.clone(), "server");
 
     tokio::select! {

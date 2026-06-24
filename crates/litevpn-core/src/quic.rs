@@ -4,6 +4,7 @@ use anyhow::{Context, Result, bail};
 use bytes::Bytes;
 use quinn::Connection;
 use socket2::{Domain, Protocol, Socket, Type};
+use tokio::time::{Duration, Instant, sleep_until};
 use tracing::{debug, trace};
 use tun_rs::AsyncDevice;
 
@@ -72,8 +73,13 @@ pub async fn pump_tun_to_quic(
     connection: Connection,
     mtu: usize,
     label: &'static str,
+    egress_target_mbps: u64,
 ) -> Result<()> {
     let mut buf = vec![0_u8; mtu + 64];
+    let started = Instant::now();
+    let mut bytes = 0_u64;
+    let target_bytes_per_sec = target_bytes_per_sec(egress_target_mbps);
+    let burst_bytes = target_burst_bytes(target_bytes_per_sec, mtu);
     loop {
         let n = tokio::select! {
             result = device.recv(&mut buf) => result?,
@@ -99,6 +105,8 @@ pub async fn pump_tun_to_quic(
         connection
             .send_datagram_wait(Bytes::copy_from_slice(&buf[..n]))
             .await?;
+        bytes += n as u64;
+        pace_to_target(started, bytes, target_bytes_per_sec, burst_bytes).await;
     }
 }
 
@@ -117,5 +125,43 @@ pub async fn pump_quic_to_tun(
             );
         }
         trace!(label, packet_bytes = written, "quic -> tun");
+    }
+}
+
+fn target_bytes_per_sec(target_mbps: u64) -> Option<f64> {
+    if target_mbps == 0 {
+        return None;
+    }
+    Some(target_mbps as f64 * 1_000_000.0 / 8.0)
+}
+
+fn target_burst_bytes(target_bytes_per_sec: Option<f64>, mtu: usize) -> u64 {
+    target_bytes_per_sec
+        .map(|bytes_per_sec| (bytes_per_sec * 0.010).max(mtu as f64).ceil() as u64)
+        .unwrap_or(0)
+}
+
+async fn pace_to_target(
+    started: Instant,
+    bytes: u64,
+    target_bytes_per_sec: Option<f64>,
+    burst_bytes: u64,
+) {
+    let Some(target_bytes_per_sec) = target_bytes_per_sec else {
+        return;
+    };
+    if bytes <= burst_bytes {
+        return;
+    }
+    let elapsed = started.elapsed().as_secs_f64();
+    let allowed_bytes = elapsed * target_bytes_per_sec + burst_bytes as f64;
+    if bytes as f64 <= allowed_bytes {
+        return;
+    }
+    let target_elapsed =
+        Duration::from_secs_f64((bytes - burst_bytes) as f64 / target_bytes_per_sec);
+    let target_time = started + target_elapsed;
+    if target_time > Instant::now() {
+        sleep_until(target_time).await;
     }
 }

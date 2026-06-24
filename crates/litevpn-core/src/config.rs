@@ -32,6 +32,7 @@ pub struct ServerConfig {
     pub congestion_controller: CongestionController,
     pub udp_recv_buffer_bytes: usize,
     pub udp_send_buffer_bytes: usize,
+    pub egress_target_mbps: u64,
 }
 
 impl Default for ServerConfig {
@@ -53,6 +54,7 @@ impl Default for ServerConfig {
             congestion_controller: CongestionController::Cubic,
             udp_recv_buffer_bytes: DEFAULT_UDP_SOCKET_BUFFER_BYTES,
             udp_send_buffer_bytes: DEFAULT_UDP_SOCKET_BUFFER_BYTES,
+            egress_target_mbps: 0,
         }
     }
 }
@@ -61,6 +63,7 @@ impl ServerConfig {
     pub fn validate(&self) -> Result<()> {
         validate_common(self.mtu, self.tun_prefix, self.datagram_buffer_bytes)?;
         validate_udp_socket_buffers(self.udp_recv_buffer_bytes, self.udp_send_buffer_bytes)?;
+        validate_egress_target(self.egress_target_mbps)?;
         if self.tun_name.trim().is_empty() {
             bail!("server tun_name must not be empty");
         }
@@ -89,6 +92,7 @@ pub struct ClientConfig {
     pub congestion_controller: CongestionController,
     pub udp_recv_buffer_bytes: usize,
     pub udp_send_buffer_bytes: usize,
+    pub egress_target_mbps: u64,
 }
 
 impl Default for ClientConfig {
@@ -109,6 +113,7 @@ impl Default for ClientConfig {
             congestion_controller: CongestionController::Cubic,
             udp_recv_buffer_bytes: DEFAULT_UDP_SOCKET_BUFFER_BYTES,
             udp_send_buffer_bytes: DEFAULT_UDP_SOCKET_BUFFER_BYTES,
+            egress_target_mbps: 0,
         }
     }
 }
@@ -117,6 +122,7 @@ impl ClientConfig {
     pub fn validate(&self) -> Result<()> {
         validate_common(self.mtu, self.tun_prefix, self.datagram_buffer_bytes)?;
         validate_udp_socket_buffers(self.udp_recv_buffer_bytes, self.udp_send_buffer_bytes)?;
+        validate_egress_target(self.egress_target_mbps)?;
         if self.server.trim().is_empty() {
             bail!("server must not be empty");
         }
@@ -152,6 +158,13 @@ pub fn validate_udp_socket_buffers(
     }
     if send_buffer_bytes != 0 && send_buffer_bytes < 64 * 1024 {
         bail!("udp_send_buffer_bytes must be 0 or >= 65536");
+    }
+    Ok(())
+}
+
+pub fn validate_egress_target(egress_target_mbps: u64) -> Result<()> {
+    if egress_target_mbps > 10_000 {
+        bail!("egress_target_mbps must be <= 10000");
     }
     Ok(())
 }

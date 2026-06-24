@@ -12,6 +12,7 @@ Server: `ubuntu@161.33.36.181`, OCI Osaka, `VM.Standard.E2.1.Micro`
 - Congestion controller: `cubic`
 - Explicit UDP socket buffers: disabled (`0`, OS default)
 - Stable benchmark targets on current path: download `38 Mbps`, upload `15 Mbps`
+- VPN egress pacing: server `38 Mbps`, client `15 Mbps` on this deployment
 - Server deployment: local Rust build, replace only `/usr/local/bin/litevpn-server`
 
 ## Why 1162 Is Selected
@@ -61,6 +62,8 @@ Commands:
 | Paced upload | upload | 1162 | 15.01 Mbps | 18,755,842 bytes / 11s | Stable target |
 | Paced upload | upload | 1162 | 18.03 Mbps | 19,719,140 bytes / 11s | Client congestion 14 |
 | Unlimited comparison | download | 1162 | 35.14 Mbps | 53,629,786 bytes / 10s | Server lost 4,742 packets / 5,653,484 bytes |
+| VPN egress pacing deploy check | download | 1162 | 38.03 Mbps | 47,546,716 bytes / 10s | Server loss 0, congestion 0 |
+| VPN egress pacing deploy check | upload | 1162 | 15.01 Mbps | 18,702,390 bytes / 11s | Target reached |
 
 ## Code Changes In This Iteration
 
@@ -74,10 +77,11 @@ Commands:
 - Added explicit UDP socket buffer controls and tested 4MiB; kept OS default because throughput regressed.
 - Added Quinn connection stats to benchmark output. The latest low-throughput runs showed path RTT and loss spikes, not just local CPU pressure.
 - Added `--bench-target-mbps` pacing. Per-packet sleep was too coarse on macOS, so pacing uses a 10ms burst budget. Current stable benchmark targets are about 38 Mbps down and 15 Mbps up.
+- Added optional VPN-mode TUN-to-QUIC egress pacing. It is off by default, but this deployment uses server `38 Mbps` and client `15 Mbps`.
 
 ## Next Candidates
 
 - Add CPU/network counters around benchmarks: server `pidstat`, `sar`, and `ss -u`.
-- Consider optional VPN-mode egress pacing if real browser traffic shows the same loss pattern as the synthetic benchmark.
+- Run a sudo TUN-mode browser/fast.com smoke test from macOS when an interactive password is available.
 - Inspect QUIC ACK/MTU discovery settings that directly affect DATAGRAM behavior under loss.
 - Compare against kernel WireGuard on the same OCI instance as the theoretical performance target.
