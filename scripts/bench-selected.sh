@@ -13,6 +13,8 @@ PAYLOAD_BYTES="${PAYLOAD_BYTES:-1300}"
 DOWNLOAD_MBPS="${DOWNLOAD_MBPS:-36}"
 UPLOAD_MBPS="${UPLOAD_MBPS:-13}"
 CONNECT_TIMEOUT_SECS="${CONNECT_TIMEOUT_SECS:-10}"
+CONNECT_RETRIES="${CONNECT_RETRIES:-3}"
+CONNECT_RETRY_DELAY_MS="${CONNECT_RETRY_DELAY_MS:-1000}"
 OUT_DIR="${OUT_DIR:-bench-results}"
 SNAPSHOT="${SNAPSHOT:-1}"
 
@@ -30,6 +32,8 @@ Environment:
   DOWNLOAD_MBPS=36
   UPLOAD_MBPS=13
   CONNECT_TIMEOUT_SECS=10
+  CONNECT_RETRIES=3
+  CONNECT_RETRY_DELAY_MS=1000
   OUT_DIR=bench-results
   SNAPSHOT=1
 HELP
@@ -88,7 +92,9 @@ run_bench() {
     --bench-payload-bytes "$PAYLOAD_BYTES" \
     --bench-runs "$RUNS" \
     --bench-run-gap-ms "$RUN_GAP_MS" \
-    --connect-timeout-secs "$CONNECT_TIMEOUT_SECS"; then
+    --connect-timeout-secs "$CONNECT_TIMEOUT_SECS" \
+    --connect-retries "$CONNECT_RETRIES" \
+    --connect-retry-delay-ms "$CONNECT_RETRY_DELAY_MS"; then
     echo "bench $direction failed"
     FAILURES=$((FAILURES + 1))
   fi

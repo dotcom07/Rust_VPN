@@ -11,6 +11,8 @@ RUNS="${RUNS:-3}"
 RUN_GAP_MS="${RUN_GAP_MS:-150}"
 PAYLOAD_BYTES="${PAYLOAD_BYTES:-1300}"
 CONNECT_TIMEOUT_SECS="${CONNECT_TIMEOUT_SECS:-10}"
+CONNECT_RETRIES="${CONNECT_RETRIES:-3}"
+CONNECT_RETRY_DELAY_MS="${CONNECT_RETRY_DELAY_MS:-1000}"
 OUT_DIR="${OUT_DIR:-bench-results}"
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
@@ -31,6 +33,8 @@ Environment:
   RUN_GAP_MS=150
   PAYLOAD_BYTES=1300
   CONNECT_TIMEOUT_SECS=10
+  CONNECT_RETRIES=3
+  CONNECT_RETRY_DELAY_MS=1000
   OUT_DIR=bench-results
 HELP
   exit 0
@@ -104,7 +108,9 @@ for target in $TARGETS; do
     --bench-payload-bytes "$PAYLOAD_BYTES" \
     --bench-runs "$RUNS" \
     --bench-run-gap-ms "$RUN_GAP_MS" \
-    --connect-timeout-secs "$CONNECT_TIMEOUT_SECS" 2>&1 | tee "$log"; then
+    --connect-timeout-secs "$CONNECT_TIMEOUT_SECS" \
+    --connect-retries "$CONNECT_RETRIES" \
+    --connect-retry-delay-ms "$CONNECT_RETRY_DELAY_MS" 2>&1 | tee "$log"; then
     status="ok"
   else
     status="failed"

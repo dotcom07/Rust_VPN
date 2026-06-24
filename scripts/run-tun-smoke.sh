@@ -10,6 +10,8 @@ CONFIG="${CONFIG:-config/client.toml}"
 HOST="${HOST:-ubuntu@161.33.36.181}"
 KEY="${KEY:-$HOME/.ssh/oracle_oci_ed25519}"
 CONNECT_TIMEOUT_SECS="${CONNECT_TIMEOUT_SECS:-10}"
+CONNECT_RETRIES="${CONNECT_RETRIES:-3}"
+CONNECT_RETRY_DELAY_MS="${CONNECT_RETRY_DELAY_MS:-1000}"
 NO_ROUTES="${NO_ROUTES:-0}"
 SUDO="${SUDO:-sudo}"
 
@@ -27,6 +29,8 @@ Environment:
   HOST=ubuntu@161.33.36.181
   KEY=~/.ssh/oracle_oci_ed25519
   CONNECT_TIMEOUT_SECS=10
+  CONNECT_RETRIES=3
+  CONNECT_RETRY_DELAY_MS=1000
   NO_ROUTES=0
   SUDO=sudo
 
@@ -101,6 +105,8 @@ client_args=(
   "$CLIENT"
   --config "$CONFIG_PATH"
   --connect-timeout-secs "$CONNECT_TIMEOUT_SECS"
+  --connect-retries "$CONNECT_RETRIES"
+  --connect-retry-delay-ms "$CONNECT_RETRY_DELAY_MS"
 )
 
 if [[ "$NO_ROUTES" == "1" ]]; then

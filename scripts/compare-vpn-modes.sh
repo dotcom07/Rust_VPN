@@ -13,6 +13,8 @@ PARALLEL="${PARALLEL:-1}"
 OUT_DIR="${OUT_DIR:-bench-results}"
 RUN_MODES="${RUN_MODES:-wireguard litevpn}"
 WG_QUICK_BIN="${WG_QUICK_BIN:-}"
+LITEVPN_CONNECT_RETRIES="${LITEVPN_CONNECT_RETRIES:-3}"
+LITEVPN_CONNECT_RETRY_DELAY_MS="${LITEVPN_CONNECT_RETRY_DELAY_MS:-1000}"
 FASTCOM_PAUSE="${FASTCOM_PAUSE:-0}"
 OPEN_FASTCOM="${OPEN_FASTCOM:-1}"
 FASTCOM_URL="${FASTCOM_URL:-https://fast.com/ko/#}"
@@ -45,6 +47,8 @@ Environment:
   WG_QUICK_BIN=/opt/homebrew/bin/wg-quick
   WG_CONF=config/wireguard/wg0.conf
   LITEVPN_CONFIG=config/client.toml
+  LITEVPN_CONNECT_RETRIES=3
+  LITEVPN_CONNECT_RETRY_DELAY_MS=1000
   FASTCOM_PAUSE=1  # pause after each mode for manual Fast.com loaded-latency capture
   OPEN_FASTCOM=1
   FASTCOM_URL=https://fast.com/ko/#
@@ -240,7 +244,11 @@ run_litevpn() {
   echo
   echo "== start litevpn =="
   restore_remote_litevpn
-  sudo "$ROOT/target/release/litevpn-client" --config "$LITEVPN_CONFIG" > "$COMPARE_DIR/litevpn-client.log" 2>&1 &
+  sudo "$ROOT/target/release/litevpn-client" \
+    --config "$LITEVPN_CONFIG" \
+    --connect-retries "$LITEVPN_CONNECT_RETRIES" \
+    --connect-retry-delay-ms "$LITEVPN_CONNECT_RETRY_DELAY_MS" \
+    > "$COMPARE_DIR/litevpn-client.log" 2>&1 &
   LITEVPN_PID=$!
   sleep 4
   run_bench litevpn

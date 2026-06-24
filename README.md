@@ -59,8 +59,8 @@ HOST=ubuntu@YOUR_SERVER_IP KEY=~/.ssh/your_oci_key scripts/deploy-server.sh
 ## Client
 
 ```bash
-./target/release/litevpn-client --config config/client.toml --probe --connect-timeout-secs 10
-sudo ./target/release/litevpn-client --config config/client.toml
+./target/release/litevpn-client --config config/client.toml --probe --connect-timeout-secs 10 --connect-retries 3
+sudo ./target/release/litevpn-client --config config/client.toml --connect-retries 3
 ```
 
 Use `--no-routes` to test the tunnel without changing macOS routes.
@@ -73,6 +73,9 @@ sudo ./target/release/litevpn-client --config config/client.toml --cleanup-route
 ```
 
 If the probe times out while the server service is active, open `443/udp` in the Oracle Cloud Security List or NSG for the instance subnet.
+
+`--connect-retries` rebuilds the local QUIC endpoint for each attempt. This is
+useful after route cleanup, Wi-Fi path changes, or transient OCI path loss.
 
 ## Benchmarks
 

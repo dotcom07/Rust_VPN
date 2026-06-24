@@ -9,6 +9,8 @@ KEY="${KEY:-/Users/sungje/.ssh/oracle_oci_ed25519}"
 WG_NAME="${WG_NAME:-wg0}"
 WG_CONF="${WG_CONF:-$ROOT/config/wireguard/$WG_NAME.conf}"
 LITEVPN_CONFIG="${LITEVPN_CONFIG:-$ROOT/config/client.toml}"
+LITEVPN_CONNECT_RETRIES="${LITEVPN_CONNECT_RETRIES:-3}"
+LITEVPN_CONNECT_RETRY_DELAY_MS="${LITEVPN_CONNECT_RETRY_DELAY_MS:-1000}"
 RESTORE_LITEVPN="${RESTORE_LITEVPN:-1}"
 WG_QUICK_BIN="${WG_QUICK_BIN:-}"
 LOCAL_WG_UP=0
@@ -31,6 +33,8 @@ Environment:
   WG_QUICK_BIN=/opt/homebrew/bin/wg-quick
   WG_CONF=config/wireguard/wg0.conf
   LITEVPN_CONFIG=config/client.toml
+  LITEVPN_CONNECT_RETRIES=3
+  LITEVPN_CONNECT_RETRY_DELAY_MS=1000
 HELP
 }
 
@@ -120,7 +124,10 @@ case "$MODE" in
     sudo -v
     restore_litevpn
     echo "Starting local LiteVPN with sudo."
-    sudo "$ROOT/target/release/litevpn-client" --config "$LITEVPN_CONFIG"
+    sudo "$ROOT/target/release/litevpn-client" \
+      --config "$LITEVPN_CONFIG" \
+      --connect-retries "$LITEVPN_CONNECT_RETRIES" \
+      --connect-retry-delay-ms "$LITEVPN_CONNECT_RETRY_DELAY_MS"
     ;;
   *)
     echo "MODE must be wireguard or litevpn" >&2

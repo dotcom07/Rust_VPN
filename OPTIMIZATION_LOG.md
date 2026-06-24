@@ -188,6 +188,7 @@ Commands:
 - Added explicit CLI mode flags: `scripts/run-vpn-mode.sh --mode wireguard|litevpn` and repeated `scripts/compare-vpn-modes.sh --mode ...`, while keeping the existing environment-variable workflow.
 - Added `scripts/summarize-vpn-comparison.sh` to turn `summary.csv` plus optional Fast.com notes into `comparison.md` with a clear recommendation score.
 - Added `scripts/sweep-wireguard-mtu.sh` to reinstall WireGuard with MTU candidates, run WireGuard-only comparisons, summarize each run, and recommend the best WireGuard MTU baseline.
+- Added client `--connect-retries` and `--connect-retry-delay-ms`; the LiteVPN run/benchmark wrappers now default to three connect attempts to reduce transient timeout failures.
 
 ## Next Candidates
 

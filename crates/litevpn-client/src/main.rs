@@ -44,6 +44,12 @@ struct Args {
     #[arg(long, default_value_t = 10)]
     connect_timeout_secs: u64,
 
+    #[arg(long, default_value_t = 1)]
+    connect_retries: u64,
+
+    #[arg(long, default_value_t = 500)]
+    connect_retry_delay_ms: u64,
+
     #[arg(long, value_parser = ["upload", "download", "stream-upload", "stream-download", "stream-packet-upload", "stream-packet-download"])]
     bench: Option<String>,
 
@@ -115,6 +121,8 @@ async fn main() -> Result<()> {
         .map(parse_bench_direction)
         .transpose()?;
     let bench_target_mbps = bench_target_mbps(args.bench_target_mbps)?;
+    let connect_retries = connect_retries(args.connect_retries)?;
+    let connect_retry_delay_ms = connect_retry_delay_ms(args.connect_retry_delay_ms)?;
     let bench_runs = if bench_direction.is_some() {
         bench_runs(args.bench_runs)?
     } else {
@@ -131,6 +139,8 @@ async fn main() -> Result<()> {
         server_addr,
         client_config.clone(),
         args.connect_timeout_secs,
+        connect_retries,
+        connect_retry_delay_ms,
     )
     .await?;
 
@@ -171,6 +181,8 @@ async fn main() -> Result<()> {
             bench_runs,
             args.bench_run_gap_ms,
             args.connect_timeout_secs,
+            connect_retries,
+            connect_retry_delay_ms,
             config.adaptive_egress,
         )
         .await?;
@@ -301,6 +313,47 @@ async fn connect_client(
     server_addr: SocketAddr,
     client_config: quinn::ClientConfig,
     connect_timeout_secs: u64,
+    connect_retries: u64,
+    connect_retry_delay_ms: u64,
+) -> Result<(Endpoint, quinn::Connection)> {
+    let mut last_error = None;
+
+    for attempt in 1..=connect_retries {
+        match connect_once(
+            config,
+            server_addr,
+            client_config.clone(),
+            connect_timeout_secs,
+        )
+        .await
+        {
+            Ok(result) => return Ok(result),
+            Err(error) => {
+                if attempt >= connect_retries {
+                    last_error = Some(error);
+                    break;
+                }
+                tracing::warn!(
+                    attempt,
+                    retries = connect_retries,
+                    error = %error,
+                    "connect attempt failed; retrying"
+                );
+                if connect_retry_delay_ms > 0 {
+                    sleep(Duration::from_millis(connect_retry_delay_ms)).await;
+                }
+            }
+        }
+    }
+
+    Err(last_error.expect("connect_retries is validated to be greater than zero"))
+}
+
+async fn connect_once(
+    config: &ClientConfig,
+    server_addr: SocketAddr,
+    client_config: quinn::ClientConfig,
+    connect_timeout_secs: u64,
 ) -> Result<(Endpoint, quinn::Connection)> {
     let bind_addr: SocketAddr = if server_addr.is_ipv4() {
         "0.0.0.0:0".parse().unwrap()
@@ -384,6 +437,23 @@ fn bench_runs(value: u64) -> Result<u64> {
     Ok(value)
 }
 
+fn connect_retries(value: u64) -> Result<u64> {
+    if value == 0 {
+        bail!("connect retries must be greater than zero");
+    }
+    if value > 100 {
+        bail!("connect retries must be <= 100");
+    }
+    Ok(value)
+}
+
+fn connect_retry_delay_ms(value: u64) -> Result<u64> {
+    if value > 60_000 {
+        bail!("connect retry delay ms must be <= 60000");
+    }
+    Ok(value)
+}
+
 async fn run_bench_iterations(
     first_endpoint: Endpoint,
     first_connection: quinn::Connection,
@@ -399,6 +469,8 @@ async fn run_bench_iterations(
     runs: u64,
     run_gap_ms: u64,
     connect_timeout_secs: u64,
+    connect_retries: u64,
+    connect_retry_delay_ms: u64,
     adaptive_egress: bool,
 ) -> Result<()> {
     let mut measurements = Vec::with_capacity(runs as usize);
@@ -414,6 +486,8 @@ async fn run_bench_iterations(
                     server_addr,
                     client_config.clone(),
                     connect_timeout_secs,
+                    connect_retries,
+                    connect_retry_delay_ms,
                 )
                 .await?;
                 client_authenticate_with_mode(&connection, token, auth_mode).await?;
@@ -1000,5 +1074,19 @@ mod tests {
         assert_eq!(bench_runs(1).expect("valid run count"), 1);
         assert!(bench_runs(0).is_err());
         assert!(bench_runs(101).is_err());
+    }
+
+    #[test]
+    fn validates_connect_retry_options() {
+        assert_eq!(connect_retries(1).expect("valid retry count"), 1);
+        assert_eq!(connect_retries(3).expect("valid retry count"), 3);
+        assert!(connect_retries(0).is_err());
+        assert!(connect_retries(101).is_err());
+
+        assert_eq!(
+            connect_retry_delay_ms(60_000).expect("valid retry delay"),
+            60_000
+        );
+        assert!(connect_retry_delay_ms(60_001).is_err());
     }
 }
