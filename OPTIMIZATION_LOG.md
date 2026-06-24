@@ -8,6 +8,7 @@ Server: `ubuntu@161.33.36.181`, OCI Osaka, `VM.Standard.E2.1.Micro`
 - Tunnel MTU: `1162`
 - QUIC initial MTU: `min(tun_mtu + 160, 1452)`
 - Benchmark payload: auto, capped by `connection.max_datagram_size()` and config MTU
+- Server kernel buffers: `rmem/wmem_max=16777216`, `rmem/wmem_default=1048576`, `netdev_max_backlog=4096`
 - Server deployment: local Rust build, replace only `/usr/local/bin/litevpn-server`
 
 ## Why 1162 Is Selected
@@ -35,6 +36,8 @@ Commands:
 | Payload sweep | download | 1200 | 5.68 Mbps | 11,288,400 bytes / 8s | Not selected |
 | Selected MTU 1162 | upload | 1162 | 38.51 Mbps | 47,525,800 bytes / 11s | Selected |
 | Selected MTU 1162 | download | 1162 | 40.35 Mbps | 60,173,008 bytes / 10s | Selected |
+| MTU 1162 + kernel buffers | upload | 1162 | 39.91 Mbps | 47,316,640 bytes / 11s | Keep |
+| MTU 1162 + kernel buffers | download | 1162 | 45.68 Mbps | 70,992,390 bytes / 10s | Keep |
 
 ## Code Changes In This Iteration
 
@@ -43,6 +46,7 @@ Commands:
 - Added deadline handling so benchmark send loops exit even under QUIC backpressure.
 - Raised QUIC transport initial MTU headroom while keeping the selected TUN MTU conservative.
 - Added datagram capacity checks before entering VPN mode to avoid silent oversized TUN packet drops.
+- Raised Linux UDP/socket buffer ceilings and defaults in `server-prepare.sh`.
 
 ## Next Candidates
 

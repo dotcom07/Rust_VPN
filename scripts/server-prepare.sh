@@ -14,8 +14,26 @@ $SUDO mkdir -p /etc/litevpn
 $SUDO chmod 700 /etc/litevpn
 $SUDO modprobe tun
 
-echo net.ipv4.ip_forward=1 | $SUDO tee /etc/sysctl.d/99-litevpn.conf >/dev/null
-$SUDO sysctl -w net.ipv4.ip_forward=1 >/dev/null
+$SUDO tee /etc/sysctl.d/99-litevpn.conf >/dev/null <<'SYSCTL'
+net.ipv4.ip_forward=1
+net.core.rmem_max=16777216
+net.core.wmem_max=16777216
+net.core.rmem_default=1048576
+net.core.wmem_default=1048576
+net.core.netdev_max_backlog=4096
+net.ipv4.udp_rmem_min=16384
+net.ipv4.udp_wmem_min=16384
+SYSCTL
+
+$SUDO sysctl -w \
+  net.ipv4.ip_forward=1 \
+  net.core.rmem_max=16777216 \
+  net.core.wmem_max=16777216 \
+  net.core.rmem_default=1048576 \
+  net.core.wmem_default=1048576 \
+  net.core.netdev_max_backlog=4096 \
+  net.ipv4.udp_rmem_min=16384 \
+  net.ipv4.udp_wmem_min=16384 >/dev/null
 
 if command -v nft >/dev/null 2>&1; then
   $SUDO nft list table inet litevpn >/dev/null 2>&1 || $SUDO nft add table inet litevpn

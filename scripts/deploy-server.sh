@@ -21,8 +21,11 @@ fi
 test -x "$BIN"
 
 scp -i "$KEY" "$BIN" "$HOST:/tmp/litevpn-server.new"
+scp -i "$KEY" scripts/server-prepare.sh "$HOST:/tmp/server-prepare.sh"
 ssh -i "$KEY" "$HOST" '
   sudo install -m 0755 /tmp/litevpn-server.new /usr/local/bin/litevpn-server
+  sudo install -d -m 0755 /usr/local/lib/litevpn
+  sudo install -m 0755 /tmp/server-prepare.sh /usr/local/lib/litevpn/server-prepare.sh
   sudo systemctl daemon-reload
   sudo systemctl restart litevpn-server
   sudo systemctl status litevpn-server --no-pager
