@@ -77,6 +77,8 @@ Commands:
 | Upload stability sweep | upload | 1300 | 13.01 Mbps | 16,261,700 bytes / 11s | Server loss 0, client loss 4 packets |
 | Upload stability sweep | upload | 1300 | 14.01 Mbps | 17,514,900 bytes / 11s | Server loss 0, client loss 3 packets |
 | Selected upload confirmation | upload | 1300 | 14.01 Mbps | 17,514,900 bytes / 11s | Server loss 0, client loss 2 packets |
+| Cleanup-path confirmation | download | 1300 | 38.02 Mbps | 47,548,800 bytes / 10s | Server loss 0, congestion 0 |
+| Cleanup-path confirmation | upload | 1300 | 14.01 Mbps | 17,509,700 bytes / 11s | Server loss 0 |
 | Paced MTU retest | download | 1350 | 37.82 Mbps | 47,548,350 bytes / 10s | 0 server loss, higher RTT |
 | Paced MTU retest | download | 1400 | 39.99 Mbps | 47,353,600 bytes / 10s | 0 server loss at 38 target, but edge-risk |
 | Paced MTU edge check | download | 1400 | failed | n/a | `datagram too large` at 45 Mbps target |
@@ -97,6 +99,7 @@ Commands:
 - Added optional VPN-mode TUN-to-QUIC egress pacing. The selected defaults are server `38 Mbps` and client `14 Mbps`; set `egress_target_mbps = 0` to disable.
 - Retested larger MTUs under pacing. Selected `1300`; `1400` is too close to the edge.
 - Made macOS route installation idempotent by deleting stale LiteVPN split-default routes before install and rolling back partial installs on failure.
+- Ensured client VPN mode still runs macOS route cleanup, QUIC close, and endpoint drain when either packet pump exits with an error.
 
 ## Next Candidates
 

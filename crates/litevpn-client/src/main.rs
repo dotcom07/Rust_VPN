@@ -188,14 +188,19 @@ async fn main() -> Result<()> {
     );
     let down = pump_quic_to_tun(&device, connection.clone(), "client");
 
-    tokio::select! {
-        result = up => result?,
-        result = down => result?,
+    let run_result = tokio::select! {
+        result = up => result,
+        result = down => result,
         result = shutdown_signal() => {
-            result?;
-            info!("shutdown requested");
+            match result {
+                Ok(()) => {
+                    info!("shutdown requested");
+                    Ok(())
+                }
+                Err(error) => Err(error),
+            }
         }
-    }
+    };
 
     #[cfg(target_os = "macos")]
     if let Some(routes) = routes.as_mut() {
@@ -204,7 +209,7 @@ async fn main() -> Result<()> {
 
     connection.close(0_u32.into(), b"client shutdown");
     endpoint.wait_idle().await;
-    Ok(())
+    run_result
 }
 
 fn parse_bench_direction(value: &str) -> Result<BenchDirection> {
