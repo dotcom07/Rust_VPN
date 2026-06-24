@@ -102,6 +102,12 @@ Commands:
 | Selected harness check | mixed | 1300 | download 35.03 Mbps local / 35.06 Mbps server; upload 12.35 Mbps local / 12.35 Mbps server | UDP error counters unchanged | `scripts/bench-selected.sh`, 5s x2; no summary timeout after deadline-aware backlog fix |
 | Upload reselection | upload | 1300 | 12.02 Mbps local / 12.03 Mbps server | 22,548,500 bytes / 15s | 3 runs, server/client loss 0, congestion 0; CUBIC-only comparison |
 | Client BBR reselection | mixed | 1300 | download 34.03 Mbps local / 34.06 Mbps server; upload 13.02 Mbps local / 13.02 Mbps server | 42,588,000 download server bytes, 16,269,500 upload server bytes | 5s x2 after redeploy; server loss/congestion 0 in both directions; selected |
+| Server BBR candidate | mixed | 1300 | download 40.03 Mbps local / 40.04 Mbps server; upload 13.01 Mbps local / 13.00 Mbps server | 150,143,500 download server bytes, 48,746,100 upload server bytes | 10s x3 once passed, but a later 40 Mbps check under RTT spike showed small loss/congestion; not selected |
+| Server BBR edge | mixed | 1300 | download 37.54 Mbps local / 37.89 Mbps server; upload 13.01 Mbps local / 13.00 Mbps server | 142,229,100 download server bytes, 48,764,300 upload server bytes | 38 Mbps target later caused 915 lost packets and 69 congestion events; not selected |
+| Server BBR edge | mixed | 1300 | download 45.02 Mbps local / 45.04 Mbps server; upload 13.01 Mbps local / 13.01 Mbps server | 168,918,100 download server bytes, 48,770,800 upload server bytes | 10s x3 once passed, but a later post-deploy 45 Mbps check showed 17 lost packets and 3 congestion events; not selected |
+| Server BBR edge | mixed | 1300 | download 42.68 Mbps local / 43.04 Mbps server; upload 13.01 Mbps local / 13.01 Mbps server | 53,804,400 download server bytes before failed run | 43 Mbps target caused 356 lost packets and a summary stream failure; not selected |
+| Server BBR edge | mixed | 1300 | download 48.70 Mbps local / 50.10 Mbps server; upload 13.02 Mbps local / 13.00 Mbps server | 62,699,000 download server bytes, 16,248,700 upload server bytes | 50 Mbps target caused 1,224 lost packets and 964 congestion events; not selected |
+| Cubic fallback confirmation | mixed | 1300 | download 34.02 Mbps local / 34.03 Mbps server; upload 13.01 Mbps local / 12.99 Mbps server | 127,632,700 download server bytes, 48,724,000 upload server bytes | 10s x3 after reverting server to Cubic/34; server loss/congestion 0; selected |
 | Paced MTU retest | download | 1350 | 37.82 Mbps | 47,548,350 bytes / 10s | 0 server loss, higher RTT |
 | Paced MTU retest | download | 1400 | 39.99 Mbps | 47,353,600 bytes / 10s | 0 server loss at 38 target, but edge-risk |
 | Paced MTU edge check | download | 1400 | failed | n/a | `datagram too large` at 45 Mbps target |
@@ -115,7 +121,7 @@ Commands:
 - Raised QUIC transport initial MTU headroom while keeping the selected TUN MTU conservative.
 - Added datagram capacity checks before entering VPN mode to avoid silent oversized TUN packet drops.
 - Raised Linux UDP/socket buffer ceilings and defaults in `server-prepare.sh`.
-- Added configurable Quinn congestion control. Early BBR overran before pacing/backlog, but after those fixes the selected path is server Cubic and client BBR.
+- Added configurable Quinn congestion control. Early BBR overran before pacing/backlog. A later server-side BBR retest raised short-run throughput, but Cubic remains selected on the server because it was more stable under RTT spikes.
 - Added explicit UDP socket buffer controls and tested 4MiB; kept OS default because throughput regressed.
 - Added Quinn connection stats to benchmark output. The latest low-throughput runs showed path RTT and loss spikes, not just local CPU pressure.
 - Added `--bench-target-mbps` pacing. Per-packet sleep was too coarse on macOS, so pacing uses a 10ms burst budget. Current stable benchmark targets are about 34 Mbps down and 13 Mbps up.
@@ -124,8 +130,8 @@ Commands:
 - Made macOS route installation idempotent by deleting stale LiteVPN split-default routes before install and rolling back partial installs on failure.
 - Ensured client VPN mode still runs macOS route cleanup, QUIC close, and endpoint drain when either packet pump exits with an error.
 - Added `--bench-runs` and parsed server-side aggregate stats so repeated tests compare local queued throughput against server-observed delivery/loss.
-- Re-swept paced targets with repeated runs. Client-side BBR with pacing restored upload stability at `13 Mbps`; server remains on Cubic because download is stable there.
-- Added a QUIC DATAGRAM backlog cap using `frame_tx_datagram` stats. This fixed the upload local/server delivery gap at 13 Mbps. After retesting under RTT spikes, the selected download target was lowered to `34 Mbps` for zero-loss stability.
+- Re-swept paced targets with repeated runs. Client-side BBR with pacing restored upload stability at `13 Mbps`; server-side BBR was rejected because higher download targets were less stable under RTT spikes.
+- Added a QUIC DATAGRAM backlog cap using `frame_tx_datagram` stats. This fixed the upload local/server delivery gap at 13 Mbps and bounded the selected 34 Mbps download run.
 - Made DATAGRAM backlog cap configurable as `datagram_backlog_packets`; selected default remains `64` because 32/64/128 worked around the selected targets.
 - OCI networking was left unchanged because UDP `443` is reachable; the observed drops correlate with pacing/RTT rather than Security List or NSG blocking.
 - Added `scripts/server-snapshot.sh` for service, CPU, UDP, NIC, and sysctl snapshots. Current selected-target stress did not increase `UdpRcvbufErrors`, `UdpSndbufErrors`, or NIC drops/errors.
