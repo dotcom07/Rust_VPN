@@ -130,6 +130,7 @@ Commands:
 | Transport preset switch | config | 1300 | local temp stream preset: client `40 Mbps`, datagram preset: client `13 Mbps`; remote datagram preset kept server `36 Mbps` active; post-restart selected bench held `36/13 Mbps` but still showed transient DATAGRAM delivery gaps | server remained active with `vpn_transport = "datagram"` | `scripts/set-vpn-transport.sh` now applies tested egress/adaptive presets by transport so stream-mode tests are not accidentally capped by DATAGRAM client upload pacing |
 | TUN smoke wrapper | workflow | 1300 | `scripts/run-tun-smoke.sh --help` and shell syntax validated | wrapper restores DATAGRAM on exit by default | Added an interactive macOS wrapper that switches transport/presets, starts the sudo TUN client, and restores DATAGRAM after Fast.com/browser testing |
 | Clean stream sweep selection | stream-packet-upload | 1300 | 40/60 Mbps short sweep: both delivery-ok but no clean target; 20/30/40 Mbps short sweep: selected clean `40 Mbps` at `40.12 Mbps` server avg | delivery-ok requires byte gap 0; clean additionally requires client/server loss and congestion 0 | `scripts/bench-sweep.sh` now reports separate clean and delivery-ok winners so retransmission-heavy stream candidates remain visible but are not treated as the safest target |
+| Stream chunk write | stream-packet | 1300 | upload 20/30/40/50 Mbps, 5s x2: all delivery-ok, no clean target; delivery-ok selected `50 Mbps` at `48.05 Mbps` server avg. download 36/40/45 Mbps, 5s x2: clean selected `36 Mbps` at `34.98 Mbps`; 40/45 were delivery-only with high server loss | post-deploy DATAGRAM sanity: upload `13.03 Mbps` clean; download resweep selected `36.07 Mbps` clean | Replaced the intermediate stream frame copy with Quinn `write_all_chunks`, leaving DATAGRAM as the selected default because stream upload still needs full TUN latency testing |
 | Paced MTU retest | download | 1350 | 37.82 Mbps | 47,548,350 bytes / 10s | 0 server loss, higher RTT |
 | Paced MTU retest | download | 1400 | 39.99 Mbps | 47,353,600 bytes / 10s | 0 server loss at 38 target, but edge-risk |
 | Paced MTU edge check | download | 1400 | failed | n/a | `datagram too large` at 45 Mbps target |
@@ -176,6 +177,7 @@ Commands:
 - Updated `scripts/set-vpn-transport.sh` to apply tested transport pacing presets by default: DATAGRAM client/server `13/36 Mbps`, stream client/server `40/36 Mbps`; use `APPLY_PRESETS=0` for transport-only changes.
 - Added `scripts/run-tun-smoke.sh` to run interactive macOS TUN smoke tests for `datagram` or `stream` and automatically restore the selected DATAGRAM preset on exit.
 - Split `scripts/bench-sweep.sh` candidate selection into `clean_ok` and `delivery_ok`. Stream delivery can now be tracked separately from retransmission-free operation.
+- Changed stream packet writes to use Quinn `write_all_chunks`, removing the extra intermediate full-packet frame copy before Quinn takes ownership of stream chunks.
 
 ## Next Candidates
 

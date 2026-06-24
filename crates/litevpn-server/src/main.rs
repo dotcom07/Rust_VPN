@@ -520,7 +520,7 @@ async fn run_stream_download_bench(
     framed: bool,
 ) -> Result<()> {
     let payload = vec![0_u8; payload_bytes];
-    let mut frame = vec![0_u8; payload_bytes + 2];
+    let mut frame_header = [0_u8; 2];
     let mut stream = connection
         .open_uni()
         .await
@@ -537,7 +537,7 @@ async fn run_stream_download_bench(
         }
         if framed {
             tokio::select! {
-                result = write_stream_packet(&mut stream, &mut frame, &payload, "stream bench") => {
+                result = write_stream_packet(&mut stream, &mut frame_header, &payload, "stream bench") => {
                     result?;
                     packets += 1;
                     bytes += payload_bytes as u64;

@@ -326,7 +326,7 @@ pub async fn pump_tun_to_stream(
     adaptive_egress: bool,
 ) -> Result<()> {
     let mut buf = vec![0_u8; mtu + 64];
-    let mut frame = vec![0_u8; mtu + 66];
+    let mut frame_header = [0_u8; 2];
     let mut pacer = EgressPacer::new(egress_target_mbps, mtu, adaptive_egress);
     loop {
         let n = tokio::select! {
@@ -338,7 +338,7 @@ pub async fn pump_tun_to_stream(
         if n == 0 {
             continue;
         }
-        write_stream_packet(&mut stream, &mut frame, &buf[..n], label).await?;
+        write_stream_packet(&mut stream, &mut frame_header, &buf[..n], label).await?;
         trace!(label, packet_bytes = n, "tun -> stream");
         pacer.record_and_wait(n, Some(&connection)).await;
     }
@@ -369,7 +369,7 @@ pub async fn pump_stream_to_tun(
 
 pub async fn write_stream_packet(
     stream: &mut SendStream,
-    frame: &mut [u8],
+    frame_header: &mut [u8],
     packet: &[u8],
     label: &'static str,
 ) -> Result<()> {
@@ -377,17 +377,20 @@ pub async fn write_stream_packet(
     if packet_len > u16::MAX as usize {
         bail!("{label}: stream packet is too large: {packet_len} bytes");
     }
-    if frame.len() < packet_len + 2 {
+    if frame_header.len() < 2 {
         bail!(
-            "{label}: stream frame buffer {} bytes is too small for packet {packet_len} bytes",
-            frame.len()
+            "{label}: stream frame header buffer {} bytes is too small",
+            frame_header.len()
         );
     }
 
     let len = (packet_len as u16).to_be_bytes();
-    frame[..2].copy_from_slice(&len);
-    frame[2..2 + packet_len].copy_from_slice(packet);
-    stream.write_all(&frame[..2 + packet_len]).await?;
+    frame_header[..2].copy_from_slice(&len);
+    let mut chunks = [
+        Bytes::copy_from_slice(&frame_header[..2]),
+        Bytes::copy_from_slice(packet),
+    ];
+    stream.write_all_chunks(&mut chunks).await?;
     Ok(())
 }
 
