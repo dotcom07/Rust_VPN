@@ -209,17 +209,20 @@ for target in $TARGETS; do
           clean_ok=1
         fi
       fi
-    elif [[ "${lost_packets:-}" == "0" \
-      && "${congestion_events:-}" == "0" \
-      && "$client_lost_packets" == "0" \
-      && "$client_congestion_events" == "0" ]]; then
+    else
       if [[ "$DIRECTION" == "upload" ]]; then
         if [[ "$local_total_bytes" == "$total_bytes" && "$local_total_packets" == "$total_packets" ]]; then
           delivery_ok=1
-          clean_ok=1
         fi
       elif [[ -z "$packet_gap" || "$packet_gap" -le 4 ]]; then
         delivery_ok=1
+      fi
+
+      if [[ "$delivery_ok" == "1" \
+        && "${lost_packets:-}" == "0" \
+        && "${congestion_events:-}" == "0" \
+        && "$client_lost_packets" == "0" \
+        && "$client_congestion_events" == "0" ]]; then
         clean_ok=1
       fi
     fi

@@ -12,6 +12,7 @@ config/*.token
 .DS_Store
 *.log
 bench-results/
+LITEVPN_OPTIMIZATION_REPORT.md
 .env
 .env.*
 !.env.example

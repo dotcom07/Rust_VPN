@@ -8,9 +8,12 @@ use tokio::time::{Duration, Instant, sleep, sleep_until, timeout};
 use tracing::{debug, trace, warn};
 use tun_rs::AsyncDevice;
 
+const PACER_BURST_WINDOW_SECS: f64 = 0.005;
+
 pub struct DatagramBacklog {
     baseline_tx_datagrams: u64,
     queued_datagrams: u64,
+    transmitted_datagrams: u64,
     max_backlog_packets: u64,
 }
 
@@ -137,6 +140,7 @@ impl DatagramBacklog {
         Self {
             baseline_tx_datagrams: connection.stats().frame_tx.datagram,
             queued_datagrams: 0,
+            transmitted_datagrams: 0,
             max_backlog_packets,
         }
     }
@@ -155,19 +159,25 @@ impl DatagramBacklog {
         self.wait_until(connection, Some(deadline)).await
     }
 
-    async fn wait_until(&self, connection: &Connection, deadline: Option<Instant>) -> Result<bool> {
+    async fn wait_until(
+        &mut self,
+        connection: &Connection,
+        deadline: Option<Instant>,
+    ) -> Result<bool> {
         if self.max_backlog_packets == 0 {
+            return Ok(true);
+        }
+        if self.estimated_backlog() <= self.max_backlog_packets {
             return Ok(true);
         }
 
         loop {
-            let transmitted = connection
+            self.transmitted_datagrams = connection
                 .stats()
                 .frame_tx
                 .datagram
                 .saturating_sub(self.baseline_tx_datagrams);
-            let backlog = self.queued_datagrams.saturating_sub(transmitted);
-            if backlog <= self.max_backlog_packets {
+            if self.estimated_backlog() <= self.max_backlog_packets {
                 return Ok(true);
             }
             if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
@@ -193,6 +203,11 @@ impl DatagramBacklog {
                 }
             }
         }
+    }
+
+    fn estimated_backlog(&self) -> u64 {
+        self.queued_datagrams
+            .saturating_sub(self.transmitted_datagrams)
     }
 }
 
@@ -465,6 +480,10 @@ fn target_bytes_per_sec(target_mbps: u64) -> Option<f64> {
 
 fn target_burst_bytes(target_bytes_per_sec: Option<f64>, mtu: usize) -> u64 {
     target_bytes_per_sec
-        .map(|bytes_per_sec| (bytes_per_sec * 0.010).max(mtu as f64).ceil() as u64)
+        .map(|bytes_per_sec| {
+            (bytes_per_sec * PACER_BURST_WINDOW_SECS)
+                .max(mtu as f64)
+                .ceil() as u64
+        })
         .unwrap_or(0)
 }
