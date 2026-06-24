@@ -7,7 +7,10 @@ use litevpn_core::{
     auth::{AuthMode, BenchDirection, client_authenticate_with_mode},
     config::{ClientConfig, load_token, load_toml},
     crypto,
-    quic::{create_udp_socket, ensure_datagram_capacity, pump_quic_to_tun, pump_tun_to_quic},
+    quic::{
+        connection_stats_summary, create_udp_socket, ensure_datagram_capacity, pump_quic_to_tun,
+        pump_tun_to_quic,
+    },
     tun::{TunOptions, create_tun},
 };
 use quinn::{Endpoint, EndpointConfig};
@@ -271,6 +274,7 @@ async fn run_upload_bench(
     .await
     .context("timed out waiting for bench summary")??;
     print_local_bench("upload sent", elapsed, bytes, packets, payload_bytes);
+    println!("client stats: {}", connection_stats_summary(connection));
     println!("server {summary}");
     sleep(Duration::from_millis(100)).await;
     Ok(())
@@ -300,6 +304,7 @@ async fn run_download_bench(
                     packets,
                     payload_bytes,
                 );
+                println!("client stats: {}", connection_stats_summary(connection));
                 println!("server {summary}");
                 return Ok(());
             }

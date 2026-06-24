@@ -14,7 +14,10 @@ use litevpn_core::{
     auth::{AuthMode, BenchDirection, server_authenticate},
     config::{ServerConfig, load_token, load_toml},
     crypto,
-    quic::{create_udp_socket, ensure_datagram_capacity, pump_quic_to_tun, pump_tun_to_quic},
+    quic::{
+        connection_stats_summary, create_udp_socket, ensure_datagram_capacity, pump_quic_to_tun,
+        pump_tun_to_quic,
+    },
     tun::{TunDevice, TunOptions, create_tun},
 };
 use quinn::{Connection, Endpoint, EndpointConfig};
@@ -319,9 +322,10 @@ async fn send_bench_summary(
     payload_bytes: usize,
 ) -> Result<()> {
     let summary = format!(
-        "{}direction={direction} bytes={bytes} packets={packets} payload_bytes={payload_bytes} elapsed_ms={}\n",
+        "{}direction={direction} bytes={bytes} packets={packets} payload_bytes={payload_bytes} elapsed_ms={} {}\n",
         std::str::from_utf8(BENCH_SUMMARY_MAGIC).expect("ascii magic"),
-        elapsed.as_millis()
+        elapsed.as_millis(),
+        connection_stats_summary(connection)
     );
 
     let (mut send, _recv) = connection

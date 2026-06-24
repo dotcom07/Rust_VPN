@@ -47,6 +47,9 @@ Commands:
 | Explicit socket buffers 4MiB | download | 1162 | 26.29 Mbps | 43,611,022 bytes / 10s | Not selected |
 | Socket buffers reverted to OS default | download | 1162 | 40.90 Mbps | 40,717,642 bytes / 6s | Keep |
 | Socket buffers reverted to OS default | upload | 1162 | 46.64 Mbps | 56,516,194 bytes / 11s | Keep |
+| Stats run, high RTT path | download | 1162 | 12.84 Mbps | 20,264,118 bytes / 10s | RTT 153ms, server lost 10,721 bytes |
+| Stats run, high loss path | download | 1162 | 27.37 Mbps | 47,331,746 bytes / 10s | Server lost 7,691 packets / 9,170,434 bytes |
+| Stats run, high RTT path | upload | 1162 | 8.07 Mbps | 6,883,688 bytes / 11s | RTT 60ms, client congestion events 14 |
 
 ## Code Changes In This Iteration
 
@@ -58,9 +61,11 @@ Commands:
 - Raised Linux UDP/socket buffer ceilings and defaults in `server-prepare.sh`.
 - Added configurable Quinn congestion control and tested BBR; kept Cubic for this path.
 - Added explicit UDP socket buffer controls and tested 4MiB; kept OS default because throughput regressed.
+- Added Quinn connection stats to benchmark output. The latest low-throughput runs showed path RTT and loss spikes, not just local CPU pressure.
 
 ## Next Candidates
 
-- Add CPU/network counters around benchmarks: server `pidstat`, `sar`, `ss -u`, and Quinn connection stats if available.
-- Tune Linux UDP socket buffers after checking whether Quinn's endpoint construction can use a preconfigured socket.
+- Add CPU/network counters around benchmarks: server `pidstat`, `sar`, and `ss -u`.
+- Add benchmark pacing/rate-limit sweeps to find the highest stable Mbps under loss instead of always blasting DATAGRAMs.
+- Inspect QUIC ACK/MTU discovery settings that directly affect DATAGRAM loss recovery.
 - Compare against kernel WireGuard on the same OCI instance as the theoretical performance target.

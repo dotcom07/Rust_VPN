@@ -48,6 +48,25 @@ pub fn ensure_datagram_capacity(
     Ok(())
 }
 
+pub fn connection_stats_summary(connection: &Connection) -> String {
+    let stats = connection.stats();
+    format!(
+        "udp_tx_datagrams={} udp_tx_bytes={} udp_rx_datagrams={} udp_rx_bytes={} lost_packets={} lost_bytes={} congestion_events={} cwnd={} rtt_ms={} current_mtu={} frame_tx_datagram={} frame_rx_datagram={}",
+        stats.udp_tx.datagrams,
+        stats.udp_tx.bytes,
+        stats.udp_rx.datagrams,
+        stats.udp_rx.bytes,
+        stats.path.lost_packets,
+        stats.path.lost_bytes,
+        stats.path.congestion_events,
+        stats.path.cwnd,
+        stats.path.rtt.as_millis(),
+        stats.path.current_mtu,
+        stats.frame_tx.datagram,
+        stats.frame_rx.datagram,
+    )
+}
+
 pub async fn pump_tun_to_quic(
     device: &AsyncDevice,
     connection: Connection,
