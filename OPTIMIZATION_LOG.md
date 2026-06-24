@@ -108,6 +108,9 @@ Commands:
 | Server BBR edge | mixed | 1300 | download 42.68 Mbps local / 43.04 Mbps server; upload 13.01 Mbps local / 13.01 Mbps server | 53,804,400 download server bytes before failed run | 43 Mbps target caused 356 lost packets and a summary stream failure; not selected |
 | Server BBR edge | mixed | 1300 | download 48.70 Mbps local / 50.10 Mbps server; upload 13.02 Mbps local / 13.00 Mbps server | 62,699,000 download server bytes, 16,248,700 upload server bytes | 50 Mbps target caused 1,224 lost packets and 964 congestion events; not selected |
 | Cubic fallback confirmation | mixed | 1300 | download 34.02 Mbps local / 34.03 Mbps server; upload 13.01 Mbps local / 12.99 Mbps server | 127,632,700 download server bytes, 48,724,000 upload server bytes | 10s x3 after reverting server to Cubic/34; server loss/congestion 0; selected |
+| Sweep smoke | download | 1300 | 38.03 Mbps local / 38.06 Mbps server | 57,097,300 server bytes | 6s x2 sweep found 38 Mbps zero-loss candidate |
+| Sweep smoke | upload | 1300 | 14.02 Mbps local / 14.01 Mbps server | 21,021,000 server bytes | 6s x2 sweep found 14 Mbps zero-loss candidate |
+| Selected rejection | mixed | 1300 | download avg 26.15 Mbps local / 26.23 Mbps server; upload 14.01 Mbps local / 14.01 Mbps server | 98,373,600 download server bytes, 52,551,200 upload server bytes | 38/14 candidate failed 10s x3 selected validation: download lost 382 packets, congestion 16; upload lost 1 packet; keep 34/13 |
 | Paced MTU retest | download | 1350 | 37.82 Mbps | 47,548,350 bytes / 10s | 0 server loss, higher RTT |
 | Paced MTU retest | download | 1400 | 39.99 Mbps | 47,353,600 bytes / 10s | 0 server loss at 38 target, but edge-risk |
 | Paced MTU edge check | download | 1400 | failed | n/a | `datagram too large` at 45 Mbps target |
