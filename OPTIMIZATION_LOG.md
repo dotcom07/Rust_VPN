@@ -11,8 +11,8 @@ Server: `ubuntu@161.33.36.181`, OCI Osaka, `VM.Standard.E2.1.Micro`
 - Server kernel buffers: `rmem/wmem_max=16777216`, `rmem/wmem_default=1048576`, `netdev_max_backlog=4096`
 - Congestion controller: `cubic`
 - Explicit UDP socket buffers: disabled (`0`, OS default)
-- Stable benchmark targets on current path: download `38 Mbps`, upload `15 Mbps`
-- VPN egress pacing: server `38 Mbps`, client `15 Mbps` on this deployment
+- Stable benchmark targets on current path: download `38 Mbps`, upload `14 Mbps`
+- VPN egress pacing: server `38 Mbps`, client `14 Mbps` on this deployment
 - Server deployment: local Rust build, replace only `/usr/local/bin/litevpn-server`
 
 ## Why 1300 Is Selected
@@ -72,6 +72,11 @@ Commands:
 | Paced MTU retest | upload | 1300 | 15.01 Mbps | 18,762,900 bytes / 11s | 0 server loss |
 | Post-deploy confirmation | download | 1300 | 38.01 Mbps | 47,547,500 bytes / 10s | Server loss 0, congestion 0 |
 | Post-deploy confirmation | upload | 1300 | 15.01 Mbps | 18,768,100 bytes / 11s | Client/server loss 0, congestion 0 |
+| Upload stability sweep | upload | 1300 | 15.01 Mbps | 18,634,200 bytes / 11s | Client loss 104 packets, congestion 5 |
+| Upload stability sweep | upload | 1300 | 12.01 Mbps | 15,012,400 bytes / 11s | Server loss 0, client loss 2 packets |
+| Upload stability sweep | upload | 1300 | 13.01 Mbps | 16,261,700 bytes / 11s | Server loss 0, client loss 4 packets |
+| Upload stability sweep | upload | 1300 | 14.01 Mbps | 17,514,900 bytes / 11s | Server loss 0, client loss 3 packets |
+| Selected upload confirmation | upload | 1300 | 14.01 Mbps | 17,514,900 bytes / 11s | Server loss 0, client loss 2 packets |
 | Paced MTU retest | download | 1350 | 37.82 Mbps | 47,548,350 bytes / 10s | 0 server loss, higher RTT |
 | Paced MTU retest | download | 1400 | 39.99 Mbps | 47,353,600 bytes / 10s | 0 server loss at 38 target, but edge-risk |
 | Paced MTU edge check | download | 1400 | failed | n/a | `datagram too large` at 45 Mbps target |
@@ -88,9 +93,10 @@ Commands:
 - Added configurable Quinn congestion control and tested BBR; kept Cubic for this path.
 - Added explicit UDP socket buffer controls and tested 4MiB; kept OS default because throughput regressed.
 - Added Quinn connection stats to benchmark output. The latest low-throughput runs showed path RTT and loss spikes, not just local CPU pressure.
-- Added `--bench-target-mbps` pacing. Per-packet sleep was too coarse on macOS, so pacing uses a 10ms burst budget. Current stable benchmark targets are about 38 Mbps down and 15 Mbps up.
-- Added optional VPN-mode TUN-to-QUIC egress pacing. The selected defaults are server `38 Mbps` and client `15 Mbps`; set `egress_target_mbps = 0` to disable.
+- Added `--bench-target-mbps` pacing. Per-packet sleep was too coarse on macOS, so pacing uses a 10ms burst budget. Current stable benchmark targets are about 38 Mbps down and 14 Mbps up.
+- Added optional VPN-mode TUN-to-QUIC egress pacing. The selected defaults are server `38 Mbps` and client `14 Mbps`; set `egress_target_mbps = 0` to disable.
 - Retested larger MTUs under pacing. Selected `1300`; `1400` is too close to the edge.
+- Made macOS route installation idempotent by deleting stale LiteVPN split-default routes before install and rolling back partial installs on failure.
 
 ## Next Candidates
 

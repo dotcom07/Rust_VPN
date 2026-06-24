@@ -17,17 +17,26 @@ impl RouteGuard {
             std::net::IpAddr::V6(_) => bail!("automatic macOS routes require an IPv4 server"),
         };
         let gateway = default_gateway().await?;
+        cleanup_routes(server_ip);
 
-        run_route(&[
-            "-n",
-            "add",
-            "-host",
-            &server_ip.to_string(),
-            &gateway.to_string(),
-        ])
-        .await?;
-        run_route(&["-n", "add", "-net", "0.0.0.0/1", &vpn_gateway.to_string()]).await?;
-        run_route(&["-n", "add", "-net", "128.0.0.0/1", &vpn_gateway.to_string()]).await?;
+        let install_result = async {
+            run_route(&[
+                "-n",
+                "add",
+                "-host",
+                &server_ip.to_string(),
+                &gateway.to_string(),
+            ])
+            .await?;
+            run_route(&["-n", "add", "-net", "0.0.0.0/1", &vpn_gateway.to_string()]).await?;
+            run_route(&["-n", "add", "-net", "128.0.0.0/1", &vpn_gateway.to_string()]).await
+        }
+        .await;
+
+        if let Err(error) = install_result {
+            cleanup_routes(server_ip);
+            return Err(error);
+        }
 
         info!(%server_ip, %gateway, %vpn_gateway, "installed macOS split default routes");
         Ok(Self {
@@ -42,9 +51,7 @@ impl RouteGuard {
             return;
         }
 
-        delete_route(&["-n", "delete", "-net", "0.0.0.0/1"]);
-        delete_route(&["-n", "delete", "-net", "128.0.0.0/1"]);
-        delete_route(&["-n", "delete", "-host", &self.server_ip.to_string()]);
+        cleanup_routes(self.server_ip);
         self.installed = false;
         info!(
             server_ip = %self.server_ip,
@@ -58,6 +65,12 @@ impl Drop for RouteGuard {
     fn drop(&mut self) {
         self.cleanup();
     }
+}
+
+fn cleanup_routes(server_ip: Ipv4Addr) {
+    delete_route(&["-n", "delete", "-net", "0.0.0.0/1"]);
+    delete_route(&["-n", "delete", "-net", "128.0.0.0/1"]);
+    delete_route(&["-n", "delete", "-host", &server_ip.to_string()]);
 }
 
 async fn default_gateway() -> Result<Ipv4Addr> {
