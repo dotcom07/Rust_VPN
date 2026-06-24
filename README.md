@@ -74,7 +74,7 @@ If the probe times out while the server service is active, open `443/udp` in the
 ./target/release/litevpn-client --config config/client.toml --bench upload --bench-duration-secs 10 --bench-target-mbps 13 --bench-payload-bytes 1300 --bench-runs 3
 ```
 
-Repeated benchmark output includes local send/receive aggregate stats and parsed server-side aggregate stats.
+Repeated benchmark output includes local send/receive aggregate stats and parsed server-side aggregate stats. Upload server Mbps uses `measured_elapsed_ms`, excluding the extra drain window.
 
 `datagram_backlog_packets` caps queued QUIC DATAGRAMs that have not reached Quinn's transmit stats yet. `64` is the selected default for this path; `0` disables the cap.
 

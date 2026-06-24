@@ -657,7 +657,8 @@ fn print_bench_aggregate(measurements: &[BenchMeasurement]) {
 fn parse_server_bench_measurement(summary: &str) -> Option<ServerBenchMeasurement> {
     let bytes = parse_summary_u64(summary, "bytes")?;
     let packets = parse_summary_u64(summary, "packets")?;
-    let elapsed_ms = parse_summary_u64(summary, "elapsed_ms")?;
+    let elapsed_ms = parse_summary_u64(summary, "measured_elapsed_ms")
+        .or_else(|| parse_summary_u64(summary, "elapsed_ms"))?;
     let lost_packets = parse_summary_u64(summary, "lost_packets").unwrap_or(0);
     let congestion_events = parse_summary_u64(summary, "congestion_events").unwrap_or(0);
     let seconds = (elapsed_ms as f64 / 1000.0).max(0.001);
@@ -745,7 +746,7 @@ mod tests {
 
     #[test]
     fn parses_server_bench_measurement() {
-        let summary = "direction=download bytes=28548000 packets=21960 payload_bytes=1300 target_mbps=38 elapsed_ms=6000 udp_tx_datagrams=21963 lost_packets=54 congestion_events=3";
+        let summary = "direction=download bytes=28548000 packets=21960 payload_bytes=1300 target_mbps=38 elapsed_ms=6001 measured_elapsed_ms=6000 udp_tx_datagrams=21963 lost_packets=54 congestion_events=3";
         let measurement = parse_server_bench_measurement(summary).expect("parsed measurement");
 
         assert_eq!(measurement.bytes, 28_548_000);
@@ -754,6 +755,15 @@ mod tests {
         assert_eq!(measurement.congestion_events, 3);
         assert_eq!(measurement.elapsed_ms, 6_000);
         assert!((measurement.mbps - 38.064).abs() < 0.001);
+    }
+
+    #[test]
+    fn falls_back_to_server_elapsed_ms() {
+        let summary = "direction=download bytes=1000 packets=1 elapsed_ms=1000 lost_packets=0";
+        let measurement = parse_server_bench_measurement(summary).expect("parsed measurement");
+
+        assert_eq!(measurement.elapsed_ms, 1_000);
+        assert!((measurement.mbps - 0.008).abs() < 0.001);
     }
 
     #[test]

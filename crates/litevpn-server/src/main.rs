@@ -272,6 +272,7 @@ async fn run_upload_bench(
         &connection,
         "upload",
         started.elapsed(),
+        Duration::from_secs(duration_secs),
         bytes,
         packets,
         payload_bytes,
@@ -341,6 +342,7 @@ async fn run_download_bench(
         &connection,
         "download",
         started.elapsed(),
+        started.elapsed(),
         bytes,
         packets,
         payload_bytes,
@@ -361,6 +363,7 @@ async fn send_bench_summary(
     connection: &Connection,
     direction: &str,
     elapsed: Duration,
+    measured_elapsed: Duration,
     bytes: u64,
     packets: u64,
     payload_bytes: usize,
@@ -370,9 +373,10 @@ async fn send_bench_summary(
         .map(|value| value.to_string())
         .unwrap_or_else(|| "unlimited".to_string());
     let summary = format!(
-        "{}direction={direction} bytes={bytes} packets={packets} payload_bytes={payload_bytes} target_mbps={target} elapsed_ms={} {}\n",
+        "{}direction={direction} bytes={bytes} packets={packets} payload_bytes={payload_bytes} target_mbps={target} elapsed_ms={} measured_elapsed_ms={} {}\n",
         std::str::from_utf8(BENCH_SUMMARY_MAGIC).expect("ascii magic"),
         elapsed.as_millis(),
+        measured_elapsed.as_millis(),
         connection_stats_summary(connection)
     );
 
