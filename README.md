@@ -83,7 +83,7 @@ If the probe times out while the server service is active, open `443/udp` in the
 
 Repeated benchmark output includes local send/receive aggregate stats and parsed server-side aggregate stats. Upload server Mbps uses `measured_elapsed_ms`, excluding the extra drain window.
 
-`scripts/bench-sweep.sh` selects a candidate only when delivery checks pass. For DATAGRAM benchmarks, that includes server loss/congestion, client-side QUIC loss/congestion, and delivery gap checks. For stream diagnostics, delivery means local and server bytes match; the loss fields still show retransmission pressure.
+`scripts/bench-sweep.sh` selects the delivery-ok candidate with the highest server-observed average Mbps. For DATAGRAM benchmarks, delivery checks include server loss/congestion, client-side QUIC loss/congestion, and delivery gap checks. For stream diagnostics, delivery means local and server bytes match; the loss fields still show retransmission pressure.
 
 `datagram_backlog_packets` caps queued QUIC DATAGRAMs that have not reached Quinn's transmit stats yet. `64` is the selected default for this path; `0` disables the cap.
 

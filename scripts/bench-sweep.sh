@@ -205,8 +205,13 @@ for target in $TARGETS; do
   echo "$DIRECTION,$target,$status,$local_avg_mbps,$avg_mbps,$local_total_bytes,$total_bytes,$byte_gap,$client_lost_packets,$client_congestion_events,$lost_packets,$congestion_events,$delivery_ok,$log" >> "$SUMMARY"
 
   if [[ "$delivery_ok" == "1" ]]; then
-    best_target="$target"
-    best_mbps="$avg_mbps"
+    if [[ -n "$avg_mbps" ]] && {
+      [[ -z "$best_mbps" ]] ||
+        awk -v candidate="$avg_mbps" -v best="$best_mbps" 'BEGIN { exit !(candidate > best) }'
+    }; then
+      best_target="$target"
+      best_mbps="$avg_mbps"
+    fi
   fi
 done
 

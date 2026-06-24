@@ -16,8 +16,8 @@ use litevpn_core::{
     crypto,
     quic::{
         DatagramBacklog, EgressPacer, connection_stats_summary, create_udp_socket,
-        ensure_datagram_capacity, pump_quic_to_tun, pump_stream_to_tun, pump_tun_to_quic,
-        pump_tun_to_stream,
+        ensure_datagram_capacity, finish_stream_with_ack, pump_quic_to_tun, pump_stream_to_tun,
+        pump_tun_to_quic, pump_tun_to_stream,
     },
     tun::{TunDevice, TunOptions, create_tun},
 };
@@ -500,9 +500,7 @@ async fn run_stream_download_bench(
             Err(_) => break,
         }
     }
-    stream
-        .finish()
-        .context("failed to finish stream download")?;
+    finish_stream_with_ack(&mut stream, "stream download").await?;
 
     send_bench_summary(
         &connection,

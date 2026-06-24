@@ -4,8 +4,8 @@ use anyhow::{Context, Result, bail};
 use bytes::Bytes;
 use quinn::{Connection, RecvStream, SendStream};
 use socket2::{Domain, Protocol, Socket, Type};
-use tokio::time::{Duration, Instant, sleep, sleep_until};
-use tracing::{debug, trace};
+use tokio::time::{Duration, Instant, sleep, sleep_until, timeout};
+use tracing::{debug, trace, warn};
 use tun_rs::AsyncDevice;
 
 pub struct DatagramBacklog {
@@ -378,6 +378,25 @@ pub async fn pump_stream_to_tun(
             bail!("{label}: partial tun write: wrote {written} of {packet_len} bytes");
         }
         trace!(label, packet_bytes = written, "stream -> tun");
+    }
+}
+
+pub async fn finish_stream_with_ack(stream: &mut SendStream, label: &'static str) -> Result<()> {
+    stream
+        .finish()
+        .with_context(|| format!("failed to finish {label}"))?;
+
+    match timeout(Duration::from_secs(5), stream.stopped()).await {
+        Ok(Ok(None)) => Ok(()),
+        Ok(Ok(Some(code))) => {
+            warn!(%code, label, "stream stopped by peer");
+            Ok(())
+        }
+        Ok(Err(error)) => Err(error).with_context(|| format!("{label} stopped wait failed")),
+        Err(_) => {
+            warn!(label, "timed out waiting for stream ack");
+            Ok(())
+        }
     }
 }
 
