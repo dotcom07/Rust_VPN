@@ -10,6 +10,7 @@ WG_NAME="${WG_NAME:-wg0}"
 WG_CONF="${WG_CONF:-$ROOT/config/wireguard/$WG_NAME.conf}"
 LITEVPN_CONFIG="${LITEVPN_CONFIG:-$ROOT/config/client.toml}"
 RESTORE_LITEVPN="${RESTORE_LITEVPN:-1}"
+WG_QUICK_BIN="${WG_QUICK_BIN:-}"
 LOCAL_WG_UP=0
 CLEANED_UP=0
 
@@ -25,6 +26,7 @@ Modes:
 
 Environment:
   RESTORE_LITEVPN=1  Restore remote LiteVPN and stop remote wg0 when this script exits.
+  WG_QUICK_BIN=/opt/homebrew/bin/wg-quick
   WG_CONF=config/wireguard/wg0.conf
   LITEVPN_CONFIG=config/client.toml
 HELP
@@ -54,7 +56,7 @@ cleanup_wireguard() {
   CLEANED_UP=1
 
   if [[ "$LOCAL_WG_UP" == "1" ]]; then
-    sudo wg-quick down "$WG_CONF" >/dev/null 2>&1 || true
+    sudo "$WG_QUICK_BIN" down "$WG_CONF" >/dev/null 2>&1 || true
   fi
   restore_litevpn
 }
@@ -65,13 +67,16 @@ case "$MODE" in
       echo "missing $WG_CONF; run scripts/setup-wireguard-baseline.sh first" >&2
       exit 1
     fi
+    if [[ -z "$WG_QUICK_BIN" ]]; then
+      WG_QUICK_BIN="$(command -v wg-quick)"
+    fi
 
     echo "Checking local sudo before switching the remote server to WireGuard."
     sudo -v
     trap cleanup_wireguard EXIT INT TERM
     remote "sudo systemctl stop litevpn-server; sudo wg-quick down '$WG_NAME' >/dev/null 2>&1 || true; sudo wg-quick up '$WG_NAME'; sudo wg show '$WG_NAME'"
     echo "Starting local WireGuard with sudo."
-    sudo wg-quick up "$WG_CONF"
+    sudo "$WG_QUICK_BIN" up "$WG_CONF"
     LOCAL_WG_UP=1
     echo "WireGuard is up. Press Ctrl-C to stop and restore LiteVPN on the server."
     while true; do

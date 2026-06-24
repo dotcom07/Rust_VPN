@@ -6,6 +6,7 @@ HOST="${HOST:-ubuntu@161.33.36.181}"
 KEY="${KEY:-/Users/sungje/.ssh/oracle_oci_ed25519}"
 DURATION="${DURATION:-10}"
 PARALLEL="${PARALLEL:-1}"
+LOG_DIR="${LOG_DIR:-}"
 IPERF_SERVER_PID=""
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
@@ -21,6 +22,7 @@ tunnel IP.
 Environment:
   DURATION=10
   PARALLEL=1
+  LOG_DIR=bench-results/vpn-compare-.../wireguard
   SERVER_TUN_IP=10.77.0.1  # wireguard default
   SERVER_TUN_IP=10.66.0.1  # litevpn default
 HELP
@@ -49,7 +51,19 @@ need() {
 
 need ssh
 need iperf3
+need jq
 need ping
+
+if [[ -n "$LOG_DIR" ]]; then
+  mkdir -p "$LOG_DIR"
+else
+  LOG_DIR="$(mktemp -d "${TMPDIR:-/tmp}/litevpn-bench.XXXXXX")"
+fi
+
+PING_LOG="$LOG_DIR/ping.txt"
+UPLOAD_JSON="$LOG_DIR/upload.json"
+DOWNLOAD_JSON="$LOG_DIR/download.json"
+SUMMARY="$LOG_DIR/summary.csv"
 
 remote() {
   ssh -i "$KEY" "$HOST" "$@"
@@ -81,19 +95,53 @@ date '+%Y-%m-%dT%H:%M:%S%z'
 echo "mode=$MODE"
 echo "server_tunnel_ip=$SERVER_TUN_IP"
 echo "duration_secs=$DURATION parallel=$PARALLEL"
+echo "log_dir=$LOG_DIR"
 
 echo
 echo "== ping =="
-ping -c 20 "$SERVER_TUN_IP"
+ping -c 20 "$SERVER_TUN_IP" | tee "$PING_LOG"
+
+ping_stats="$(awk -F' = ' '/round-trip|rtt/ { print $2 }' "$PING_LOG" | tail -1)"
+ping_min_ms=""
+ping_avg_ms=""
+ping_max_ms=""
+ping_stddev_ms=""
+if [[ -n "$ping_stats" ]]; then
+  ping_min_ms="$(printf '%s\n' "$ping_stats" | awk -F'/' '{ print $1 }')"
+  ping_avg_ms="$(printf '%s\n' "$ping_stats" | awk -F'/' '{ print $2 }')"
+  ping_max_ms="$(printf '%s\n' "$ping_stats" | awk -F'/' '{ print $3 }')"
+  ping_stddev_ms="$(printf '%s\n' "$ping_stats" | awk -F'/' '{ print $4 }' | awk '{ print $1 }')"
+fi
+
+json_field_mbps() {
+  local file="$1"
+  local filter="$2"
+
+  jq -r "$filter // empty" "$file" |
+    awk '{ if ($1 != "") printf "%.2f", $1 / 1000000 }'
+}
 
 echo
 echo "== upload: client -> server =="
 start_iperf_server
-iperf3 -c "$SERVER_TUN_IP" -t "$DURATION" -P "$PARALLEL"
+iperf3 -c "$SERVER_TUN_IP" -t "$DURATION" -P "$PARALLEL" --json > "$UPLOAD_JSON"
 finish_iperf_server
+upload_sender_mbps="$(json_field_mbps "$UPLOAD_JSON" '.end.sum_sent.bits_per_second')"
+upload_receiver_mbps="$(json_field_mbps "$UPLOAD_JSON" '.end.sum_received.bits_per_second')"
+echo "upload sender_mbps=$upload_sender_mbps receiver_mbps=$upload_receiver_mbps"
 
 echo
 echo "== download: server -> client =="
 start_iperf_server
-iperf3 -c "$SERVER_TUN_IP" -t "$DURATION" -P "$PARALLEL" -R
+iperf3 -c "$SERVER_TUN_IP" -t "$DURATION" -P "$PARALLEL" -R --json > "$DOWNLOAD_JSON"
 finish_iperf_server
+download_sender_mbps="$(json_field_mbps "$DOWNLOAD_JSON" '.end.sum_sent.bits_per_second')"
+download_receiver_mbps="$(json_field_mbps "$DOWNLOAD_JSON" '.end.sum_received.bits_per_second')"
+echo "download sender_mbps=$download_sender_mbps receiver_mbps=$download_receiver_mbps"
+
+echo "mode,ping_min_ms,ping_avg_ms,ping_max_ms,ping_stddev_ms,upload_sender_mbps,upload_receiver_mbps,download_sender_mbps,download_receiver_mbps,log_dir" > "$SUMMARY"
+echo "$MODE,$ping_min_ms,$ping_avg_ms,$ping_max_ms,$ping_stddev_ms,$upload_sender_mbps,$upload_receiver_mbps,$download_sender_mbps,$download_receiver_mbps,$LOG_DIR" >> "$SUMMARY"
+
+echo
+echo "== summary =="
+cat "$SUMMARY"

@@ -182,7 +182,7 @@ Commands:
 - Changed stream packet writes to use Quinn `write_all_chunks`, removing the extra intermediate full-packet frame copy before Quinn takes ownership of stream chunks.
 - Reduced the pacing burst window to 5ms and split DATAGRAM payload delivery from strict zero-loss clean selection in `scripts/bench-sweep.sh`.
 - Added WireGuard baseline setup/run/throughput scripts. Generated WireGuard configs live under ignored `config/wireguard/`; the local-only optimization report remains ignored too.
-- Added `scripts/compare-vpn-modes.sh` to run WireGuard and LiteVPN sequentially, collect iperf3 tunnel logs under `bench-results/vpn-compare-*`, and restore the remote LiteVPN service afterward.
+- Added `scripts/compare-vpn-modes.sh` to run WireGuard and LiteVPN sequentially, collect ping/iperf3 tunnel logs plus a combined `summary.csv` under `bench-results/vpn-compare-*`, and restore the remote LiteVPN service afterward.
 
 ## Next Candidates
 

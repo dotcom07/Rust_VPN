@@ -146,6 +146,8 @@ HOST=ubuntu@YOUR_SERVER_IP KEY=~/.ssh/your_oci_key scripts/compare-vpn-modes.sh
 ```
 
 Comparison logs are written under `bench-results/vpn-compare-*`.
+Each run also writes per-mode `upload.json`, `download.json`, `ping.txt`, and
+a combined `summary.csv` for quick WireGuard vs LiteVPN comparison.
 
 Server runtime/network snapshot:
 

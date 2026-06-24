@@ -12,12 +12,14 @@ DURATION="${DURATION:-10}"
 PARALLEL="${PARALLEL:-1}"
 OUT_DIR="${OUT_DIR:-bench-results}"
 RUN_MODES="${RUN_MODES:-wireguard litevpn}"
+WG_QUICK_BIN="${WG_QUICK_BIN:-}"
 
 LITEVPN_PID=""
 LOCAL_WG_UP=0
 SUDO_KEEPALIVE_PID=""
 STAMP="$(date +%Y%m%d-%H%M%S)"
 COMPARE_DIR="$ROOT/$OUT_DIR/vpn-compare-$STAMP"
+SUMMARY="$COMPARE_DIR/summary.csv"
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   cat <<'HELP'
@@ -31,6 +33,7 @@ Environment:
   RUN_MODES="wireguard litevpn"
   DURATION=10
   PARALLEL=1
+  WG_QUICK_BIN=/opt/homebrew/bin/wg-quick
   WG_CONF=config/wireguard/wg0.conf
   LITEVPN_CONFIG=config/client.toml
 HELP
@@ -71,7 +74,7 @@ restore_remote_litevpn() {
 
 stop_local_wireguard() {
   if [[ "$LOCAL_WG_UP" == "1" ]]; then
-    sudo wg-quick down "$WG_CONF" >/dev/null 2>&1 || true
+    sudo "$WG_QUICK_BIN" down "$WG_CONF" >/dev/null 2>&1 || true
     LOCAL_WG_UP=0
   fi
 }
@@ -96,15 +99,23 @@ cleanup() {
 run_bench() {
   local mode="$1"
   local log="$COMPARE_DIR/$mode.log"
+  local mode_dir="$COMPARE_DIR/$mode"
+  local mode_summary="$mode_dir/summary.csv"
 
   echo
   echo "== benchmark $mode =="
+  mkdir -p "$mode_dir"
   MODE="$mode" \
     HOST="$HOST" \
     KEY="$KEY" \
     DURATION="$DURATION" \
     PARALLEL="$PARALLEL" \
+    LOG_DIR="$mode_dir" \
     "$ROOT/scripts/bench-vpn-throughput.sh" 2>&1 | tee "$log"
+
+  if [[ -f "$mode_summary" ]]; then
+    tail -n +2 "$mode_summary" >> "$SUMMARY"
+  fi
 }
 
 run_wireguard() {
@@ -116,7 +127,7 @@ run_wireguard() {
   echo
   echo "== start wireguard =="
   remote "sudo systemctl stop litevpn-server; sudo wg-quick down '$WG_NAME' >/dev/null 2>&1 || true; sudo wg-quick up '$WG_NAME'; sudo wg show '$WG_NAME'"
-  sudo wg-quick up "$WG_CONF"
+  sudo "$WG_QUICK_BIN" up "$WG_CONF"
   LOCAL_WG_UP=1
   sleep 2
   run_bench wireguard
@@ -139,9 +150,15 @@ need ssh
 need sudo
 need wg-quick
 need iperf3
+need jq
 need ping
 
+if [[ -z "$WG_QUICK_BIN" ]]; then
+  WG_QUICK_BIN="$(command -v wg-quick)"
+fi
+
 mkdir -p "$COMPARE_DIR"
+echo "mode,ping_min_ms,ping_avg_ms,ping_max_ms,ping_stddev_ms,upload_sender_mbps,upload_receiver_mbps,download_sender_mbps,download_receiver_mbps,log_dir" > "$SUMMARY"
 
 echo "== VPN mode comparison =="
 date '+%Y-%m-%dT%H:%M:%S%z'
@@ -166,3 +183,5 @@ done
 
 echo
 echo "comparison logs: $COMPARE_DIR"
+echo "comparison summary: $SUMMARY"
+cat "$SUMMARY"
