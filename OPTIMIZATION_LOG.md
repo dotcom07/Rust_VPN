@@ -96,6 +96,7 @@ Commands:
 | Backlog value smoke | upload | 1300 | 13.02 Mbps local / 10.86 Mbps server | 16,285,100 local bytes / 16,282,500 server bytes | backlog 128, 2 runs, loss 0 |
 | Backlog value smoke | download | 1300 | 35.13 Mbps local / 35.07 Mbps server | 43,834,700 local bytes / 43,838,600 server bytes | backlog 32, 2 runs, loss 0 |
 | Backlog value smoke | download | 1300 | 35.02 Mbps local / 35.06 Mbps server | 43,834,700 local bytes / 43,841,200 server bytes | backlog 128, 2 runs, loss 0 |
+| Server counter check | mixed | 1300 | download 35.08 Mbps local / 35.07 Mbps server; upload 12.86 Mbps local / 10.66 Mbps server | UDP error counters unchanged | Concurrent selected-target stress; NIC drops/errors stayed 0 |
 | Paced MTU retest | download | 1350 | 37.82 Mbps | 47,548,350 bytes / 10s | 0 server loss, higher RTT |
 | Paced MTU retest | download | 1400 | 39.99 Mbps | 47,353,600 bytes / 10s | 0 server loss at 38 target, but edge-risk |
 | Paced MTU edge check | download | 1400 | failed | n/a | `datagram too large` at 45 Mbps target |
@@ -122,6 +123,7 @@ Commands:
 - Added a QUIC DATAGRAM backlog cap using `frame_tx_datagram` stats. This fixed the upload local/server delivery gap at 13 Mbps. After retesting under RTT spikes, selected download `35 Mbps` for zero-loss stability.
 - Made DATAGRAM backlog cap configurable as `datagram_backlog_packets`; selected default remains `64` because 32/64/128 all worked at the selected 35/13 Mbps targets.
 - OCI networking was left unchanged because UDP `443` is reachable; the observed drops correlate with pacing/RTT rather than Security List or NSG blocking.
+- Added `scripts/server-snapshot.sh` for service, CPU, UDP, NIC, and sysctl snapshots. Current selected-target stress did not increase `UdpRcvbufErrors`, `UdpSndbufErrors`, or NIC drops/errors.
 
 ## Next Candidates
 
