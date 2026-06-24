@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-MODE="${MODE:-${1:-}}"
+MODE="${MODE:-}"
 HOST="${HOST:-ubuntu@161.33.36.181}"
 KEY="${KEY:-/Users/sungje/.ssh/oracle_oci_ed25519}"
 WG_NAME="${WG_NAME:-wg0}"
@@ -17,6 +17,8 @@ CLEANED_UP=0
 usage() {
   cat <<'HELP'
 Usage:
+  scripts/run-vpn-mode.sh --mode wireguard
+  scripts/run-vpn-mode.sh --mode litevpn
   MODE=wireguard HOST=ubuntu@161.33.36.181 KEY=/Users/sungje/.ssh/oracle_oci_ed25519 scripts/run-vpn-mode.sh
   MODE=litevpn   HOST=ubuntu@161.33.36.181 KEY=/Users/sungje/.ssh/oracle_oci_ed25519 scripts/run-vpn-mode.sh
 
@@ -32,7 +34,37 @@ Environment:
 HELP
 }
 
-if [[ -z "$MODE" || "$MODE" == "-h" || "$MODE" == "--help" ]]; then
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --mode)
+      if [[ -z "${2:-}" ]]; then
+        echo "--mode requires wireguard or litevpn" >&2
+        exit 1
+      fi
+      MODE="$2"
+      shift 2
+      ;;
+    --mode=*)
+      MODE="${1#*=}"
+      shift
+      ;;
+    wireguard|litevpn)
+      MODE="$1"
+      shift
+      ;;
+    *)
+      echo "unknown argument: $1" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+
+if [[ -z "$MODE" ]]; then
   usage
   exit 0
 fi

@@ -185,6 +185,7 @@ Commands:
 - Added `scripts/compare-vpn-modes.sh` to run WireGuard and LiteVPN sequentially, collect ping/iperf3 tunnel logs plus a combined `summary.csv` under `bench-results/vpn-compare-*`, and restore the remote LiteVPN service afterward.
 - Added `scripts/compare-vpn-modes.sh --preflight` to verify local tools/config and remote WireGuard/LiteVPN prerequisites before asking for local `sudo`.
 - Added `FASTCOM_PAUSE=1` for `scripts/compare-vpn-modes.sh` so each VPN mode can stay up long enough to capture browser Fast.com loaded-latency numbers into per-mode notes.
+- Added explicit CLI mode flags: `scripts/run-vpn-mode.sh --mode wireguard|litevpn` and repeated `scripts/compare-vpn-modes.sh --mode ...`, while keeping the existing environment-variable workflow.
 
 ## Next Candidates
 

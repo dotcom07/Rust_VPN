@@ -122,6 +122,8 @@ HOST=ubuntu@YOUR_SERVER_IP KEY=~/.ssh/your_oci_key scripts/setup-wireguard-basel
 Run either VPN mode from macOS:
 
 ```bash
+HOST=ubuntu@YOUR_SERVER_IP KEY=~/.ssh/your_oci_key scripts/run-vpn-mode.sh --mode wireguard
+HOST=ubuntu@YOUR_SERVER_IP KEY=~/.ssh/your_oci_key scripts/run-vpn-mode.sh --mode litevpn
 MODE=wireguard HOST=ubuntu@YOUR_SERVER_IP KEY=~/.ssh/your_oci_key scripts/run-vpn-mode.sh
 MODE=litevpn HOST=ubuntu@YOUR_SERVER_IP KEY=~/.ssh/your_oci_key scripts/run-vpn-mode.sh
 ```
@@ -143,17 +145,17 @@ Or run both modes sequentially with one command:
 
 ```bash
 scripts/compare-vpn-modes.sh --preflight
+HOST=ubuntu@YOUR_SERVER_IP KEY=~/.ssh/your_oci_key scripts/compare-vpn-modes.sh --mode wireguard --mode litevpn
 HOST=ubuntu@YOUR_SERVER_IP KEY=~/.ssh/your_oci_key scripts/compare-vpn-modes.sh
 ```
 
 `--preflight` checks local tools, ignored WireGuard config, remote WireGuard
 tools/config, and the remote LiteVPN service without asking for local `sudo`.
 
-To keep each VPN mode up while measuring Fast.com in Chrome, add
-`FASTCOM_PAUSE=1`:
+To keep each VPN mode up while measuring Fast.com in Chrome, add `--fastcom`:
 
 ```bash
-FASTCOM_PAUSE=1 HOST=ubuntu@YOUR_SERVER_IP KEY=~/.ssh/your_oci_key scripts/compare-vpn-modes.sh
+HOST=ubuntu@YOUR_SERVER_IP KEY=~/.ssh/your_oci_key scripts/compare-vpn-modes.sh --fastcom
 ```
 
 Comparison logs are written under `bench-results/vpn-compare-*`.

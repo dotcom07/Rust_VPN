@@ -17,6 +17,7 @@ FASTCOM_PAUSE="${FASTCOM_PAUSE:-0}"
 OPEN_FASTCOM="${OPEN_FASTCOM:-1}"
 FASTCOM_URL="${FASTCOM_URL:-https://fast.com/ko/#}"
 PREFLIGHT=0
+CLI_RUN_MODES=""
 
 LITEVPN_PID=""
 LOCAL_WG_UP=0
@@ -25,10 +26,12 @@ STAMP="$(date +%Y%m%d-%H%M%S)"
 COMPARE_DIR="$ROOT/$OUT_DIR/vpn-compare-$STAMP"
 SUMMARY="$COMPARE_DIR/summary.csv"
 
-if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+usage() {
   cat <<'HELP'
 Usage:
   scripts/compare-vpn-modes.sh --preflight
+  scripts/compare-vpn-modes.sh --mode wireguard --mode litevpn
+  scripts/compare-vpn-modes.sh --mode wireguard --fastcom
   HOST=ubuntu@161.33.36.181 KEY=/Users/sungje/.ssh/oracle_oci_ed25519 scripts/compare-vpn-modes.sh
 
 Checks prerequisites without local sudo when run with --preflight.
@@ -46,16 +49,52 @@ Environment:
   OPEN_FASTCOM=1
   FASTCOM_URL=https://fast.com/ko/#
 HELP
-  exit 0
-fi
+}
 
-if [[ "${1:-}" == "--preflight" ]]; then
-  PREFLIGHT=1
-  shift
-elif [[ "${1:-}" != "" ]]; then
-  echo "unknown argument: $1" >&2
-  echo "run with --help for usage" >&2
-  exit 1
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --preflight)
+      PREFLIGHT=1
+      shift
+      ;;
+    --fastcom)
+      FASTCOM_PAUSE=1
+      shift
+      ;;
+    --no-open-fastcom)
+      OPEN_FASTCOM=0
+      shift
+      ;;
+    --mode)
+      if [[ -z "${2:-}" ]]; then
+        echo "--mode requires wireguard or litevpn" >&2
+        exit 1
+      fi
+      CLI_RUN_MODES="${CLI_RUN_MODES:+$CLI_RUN_MODES }$2"
+      shift 2
+      ;;
+    --mode=*)
+      CLI_RUN_MODES="${CLI_RUN_MODES:+$CLI_RUN_MODES }${1#*=}"
+      shift
+      ;;
+    wireguard|litevpn)
+      CLI_RUN_MODES="${CLI_RUN_MODES:+$CLI_RUN_MODES }$1"
+      shift
+      ;;
+    *)
+      echo "unknown argument: $1" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+
+if [[ -n "$CLI_RUN_MODES" ]]; then
+  RUN_MODES="$CLI_RUN_MODES"
 fi
 
 need() {
@@ -209,6 +248,20 @@ run_litevpn() {
   stop_local_litevpn
 }
 
+validate_run_modes() {
+  local mode=""
+
+  for mode in $RUN_MODES; do
+    case "$mode" in
+      wireguard|litevpn) ;;
+      *)
+        echo "unknown mode in RUN_MODES: $mode" >&2
+        exit 1
+        ;;
+    esac
+  done
+}
+
 check_local_cmd() {
   if command -v "$1" >/dev/null 2>&1; then
     echo "local_cmd:$1=$(command -v "$1")"
@@ -303,6 +356,7 @@ need ping
 if [[ -z "$WG_QUICK_BIN" ]]; then
   WG_QUICK_BIN="$(command -v wg-quick)"
 fi
+validate_run_modes
 
 mkdir -p "$COMPARE_DIR"
 echo "mode,ping_min_ms,ping_avg_ms,ping_max_ms,ping_stddev_ms,upload_sender_mbps,upload_receiver_mbps,download_sender_mbps,download_receiver_mbps,log_dir" > "$SUMMARY"
